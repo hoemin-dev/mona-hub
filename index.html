@@ -14,11 +14,51 @@
 
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+
   <link rel="stylesheet" href="/style.css">
 </head>
 
 <body>
-  <main id="hub">
+
+  <!-- 브라우저로 접속했을 때만 표시 -->
+  <section id="installView" aria-labelledby="installTitle">
+    <div class="install-card">
+
+      <img
+        class="install-logo"
+        src="/icons/icon-192.png"
+        alt="MONA Hub"
+      >
+
+      <h1 id="installTitle">MONA Hub</h1>
+
+      <p class="install-description">
+        MONA Hub는 설치형 애플리케이션으로 제공됩니다.
+      </p>
+
+      <button
+        id="installButton"
+        type="button"
+        hidden
+      >
+        MONA Hub 설치
+      </button>
+
+      <p
+        id="installGuide"
+        class="install-guide"
+      >
+        설치 준비 중...
+      </p>
+
+    </div>
+  </section>
+
+
+  <!-- 설치된 PWA로 실행했을 때만 표시 -->
+  <main id="appView">
+
     <iframe
       id="manualKitFrame"
       src="https://manualkit.pages.dev/editor"
@@ -26,16 +66,15 @@
       allow="clipboard-read; clipboard-write"
     ></iframe>
 
-    <button id="installButton" type="button">
-      MONA Hub 설치
-    </button>
-
     <div id="loadingScreen">
       <strong>MONA Hub</strong>
       <span>Manual Kit 불러오는 중...</span>
     </div>
+
   </main>
 
+
   <script type="module" src="/app.js"></script>
+
 </body>
 </html>

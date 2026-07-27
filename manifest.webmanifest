@@ -2,10 +2,16 @@
   "id": "/",
   "name": "MONA Hub",
   "short_name": "MONA Hub",
-  "description": "MONAS Application Hub",
+  "description": "MONA application hub",
+  "lang": "ko-KR",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone"
+  ],
+  "orientation": "any",
   "background_color": "#ffffff",
   "theme_color": "#ffffff",
   "icons": [
@@ -13,13 +19,13 @@
       "src": "/icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any"
+      "purpose": "any maskable"
     },
     {
       "src": "/icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any"
+      "purpose": "any maskable"
     }
   ]
 }

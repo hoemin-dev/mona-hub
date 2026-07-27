@@ -1,3 +1,14 @@
+:root {
+  font-family:
+    Arial,
+    "Noto Sans KR",
+    "Nanum Gothic",
+    sans-serif;
+
+  color: #222;
+  background: #f5f7f8;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -11,25 +22,161 @@ body {
 
 body {
   overflow: hidden;
-  background: #ffffff;
-  font-family: Arial, "Nanum Gothic", sans-serif;
 }
 
-#hub {
-  position: relative;
+
+/* 초기 상태 */
+
+#installView,
+#appView {
+  display: none;
+}
+
+
+/* 브라우저 접속 화면 */
+
+body.browser-mode #installView {
+  display: flex;
+}
+
+#installView {
   width: 100%;
   height: 100%;
-  height: 100dvh;
-  overflow: hidden;
+
+  align-items: center;
+  justify-content: center;
+
+  padding:
+    max(24px, env(safe-area-inset-top))
+    max(24px, env(safe-area-inset-right))
+    max(24px, env(safe-area-inset-bottom))
+    max(24px, env(safe-area-inset-left));
+
+  background:
+    radial-gradient(
+      circle at top,
+      #ffffff 0%,
+      #f4f7f5 55%,
+      #e9efeb 100%
+    );
+}
+
+.install-card {
+  width: min(440px, 100%);
+
+  padding: 48px 40px;
+
+  border: 1px solid #e0e6e2;
+  border-radius: 20px;
+
+  background: rgba(255, 255, 255, 0.94);
+
+  box-shadow:
+    0 20px 50px rgba(0, 0, 0, 0.08);
+
+  text-align: center;
+}
+
+.install-logo {
+  display: block;
+
+  width: 96px;
+  height: 96px;
+
+  margin: 0 auto 24px;
+
+  border-radius: 20px;
+}
+
+.install-card h1 {
+  margin: 0;
+
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+.install-description {
+  margin: 16px 0 30px;
+
+  color: #666;
+
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+#installButton {
+  width: 100%;
+
+  padding: 15px 20px;
+
+  border: 0;
+  border-radius: 10px;
+
+  background: #00a651;
+  color: #fff;
+
+  font-size: 16px;
+  font-weight: 700;
+
+  cursor: pointer;
+
+  transition:
+    background 0.15s ease,
+    transform 0.15s ease;
+}
+
+#installButton:hover {
+  background: #008f46;
+}
+
+#installButton:active {
+  transform: translateY(1px);
+}
+
+#installButton:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.install-guide {
+  margin: 18px 0 0;
+
+  color: #888;
+
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+
+/* PWA 앱 화면 */
+
+body.app-mode #appView {
+  display: block;
+}
+
+#appView {
+  position: relative;
+
+  width: 100%;
+  height: 100%;
+
+  background: #fff;
 }
 
 #manualKitFrame {
   display: block;
+
   width: 100%;
   height: 100%;
+
   border: 0;
-  background: #ffffff;
+
+  background: #fff;
 }
+
+
+/* 로딩 화면 */
 
 #loadingScreen {
   position: absolute;
@@ -39,57 +186,42 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+
   gap: 10px;
 
-  background: #ffffff;
-  color: #333333;
+  background: #fff;
 
   transition:
-    opacity 180ms ease,
-    visibility 180ms ease;
+    opacity 0.25s ease,
+    visibility 0.25s ease;
 }
 
 #loadingScreen strong {
+  color: #222;
+
   font-size: 24px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 #loadingScreen span {
+  color: #777;
+
   font-size: 14px;
-  color: #777777;
 }
 
 #loadingScreen.is-hidden {
-  opacity: 0;
   visibility: hidden;
+  opacity: 0;
   pointer-events: none;
 }
 
-#installButton {
-  position: fixed;
-  right: 18px;
-  bottom: 18px;
-  z-index: 100;
 
-  padding: 11px 17px;
+@media (max-width: 520px) {
+  .install-card {
+    padding: 38px 24px;
+  }
 
-  border: 0;
-  border-radius: 8px;
-
-  background: #00a651;
-  color: #ffffff;
-
-  font-size: 14px;
-  font-weight: 600;
-
-  cursor: pointer;
-  box-shadow: 0 4px 14px rgb(0 0 0 / 18%);
-}
-
-#installButton:hover {
-  background: #008f46;
-}
-
-#installButton[hidden] {
-  display: none;
+  .install-card h1 {
+    font-size: 28px;
+  }
 }
