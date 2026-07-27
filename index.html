@@ -1,21 +1,41 @@
 <!doctype html>
 <html lang="ko">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport"
-          content="width=device-width,initial-scale=1">
+  <meta charset="UTF-8">
 
-    <title>MONAS Hub</title>
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, viewport-fit=cover"
+  >
 
-    <link rel="stylesheet" href="style.css">
-    <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#ffffff">
+
+  <title>MONA Hub</title>
+
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon-192.png">
+  <link rel="stylesheet" href="/style.css">
 </head>
 
 <body>
+  <main id="hub">
+    <iframe
+      id="manualKitFrame"
+      src="https://manualkit.pages.dev/editor"
+      title="Manual Kit"
+      allow="clipboard-read; clipboard-write"
+    ></iframe>
 
-<div id="app"></div>
+    <button id="installButton" type="button" hidden>
+      MONA Hub 설치
+    </button>
 
-<script type="module" src="app.js"></script>
+    <div id="loadingScreen">
+      <strong>MONA Hub</strong>
+      <span>Manual Kit 불러오는 중...</span>
+    </div>
+  </main>
 
+  <script type="module" src="/app.js"></script>
 </body>
 </html>
