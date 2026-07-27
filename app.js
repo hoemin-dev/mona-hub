@@ -2,74 +2,57 @@ const frame = document.getElementById("manualKitFrame");
 const loadingScreen = document.getElementById("loadingScreen");
 const installButton = document.getElementById("installButton");
 
-let installPrompt = null;
+let deferredPrompt = null;
 
-/*
- * Manual Kit 로딩 완료
- */
 frame.addEventListener("load", () => {
   loadingScreen.classList.add("is-hidden");
 });
 
-/*
- * PWA 설치 가능 상태가 되면
- * 브라우저의 설치 이벤트를 저장해 둔다.
- */
 window.addEventListener("beforeinstallprompt", (event) => {
-  event.preventDefault();
+  console.log("beforeinstallprompt 발생");
 
-  installPrompt = event;
+  event.preventDefault();
+  deferredPrompt = event;
   installButton.hidden = false;
 });
 
-/*
- * 사용자 설치 버튼 클릭
- */
 installButton.addEventListener("click", async () => {
-  if (!installPrompt) {
+  if (!deferredPrompt) {
+    console.warn("설치 프롬프트가 아직 준비되지 않았습니다.");
     return;
   }
 
+  deferredPrompt.prompt();
+
+  const choiceResult = await deferredPrompt.userChoice;
+
+  console.log("설치 선택:", choiceResult.outcome);
+
+  deferredPrompt = null;
   installButton.hidden = true;
-
-  await installPrompt.prompt();
-
-  const result = await installPrompt.userChoice;
-
-  console.log("PWA install result:", result.outcome);
-
-  installPrompt = null;
 });
 
-/*
- * 설치가 완료되면 버튼 제거
- */
 window.addEventListener("appinstalled", () => {
-  installPrompt = null;
+  console.log("MONA Hub 설치 완료");
+  deferredPrompt = null;
   installButton.hidden = true;
-
-  console.log("MONA Hub installed");
 });
 
-/*
- * Service Worker 등록
- */
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", async () => {
-    try {
-      const registration = await navigator.serviceWorker.register(
-        "/service-worker.js"
-      );
+async function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) {
+    console.error("이 브라우저는 Service Worker를 지원하지 않습니다.");
+    return;
+  }
 
-      console.log(
-        "Service Worker registered:",
-        registration.scope
-      );
-    } catch (error) {
-      console.error(
-        "Service Worker registration failed:",
-        error
-      );
-    }
-  });
+  try {
+    const registration = await navigator.serviceWorker.register(
+      "/service-worker.js"
+    );
+
+    console.log("Service Worker 등록 성공:", registration.scope);
+  } catch (error) {
+    console.error("Service Worker 등록 실패:", error);
+  }
 }
+
+registerServiceWorker();
