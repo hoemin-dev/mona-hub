@@ -84,13 +84,8 @@ window.addEventListener("beforeinstallprompt", event => {
   deferredInstallPrompt = event;
 
   installButton.hidden = false;
-  if (deferredInstallPrompt) {
-    installGuide.textContent =
-      "MONA Hub를 설치하면 독립된 앱 창으로 실행됩니다.";
-  } else {
-    installGuide.textContent =
-      "이미 설치되어 있거나, 브라우저 메뉴에서 설치할 수 있습니다.";
-  }
+  installGuide.textContent =
+    "MONA Hub를 설치하면 독립된 앱 창으로 실행됩니다.";
 });
 
 
