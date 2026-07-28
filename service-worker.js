@@ -1,5 +1,4 @@
-const CACHE_NAME = "mona-hub-v1";
-
+const CACHE_NAME = "mona-hub-v2";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -7,75 +6,36 @@ const APP_SHELL = [
   "/app.js",
   "/manifest.webmanifest",
   "/icons/icon-192.png",
-  "/icons/icon-512.png"
+  "/icons/icon-512.png",
+  "/logos/monas-logo.svg"
 ];
 
-
-/**
- * 설치
- */
 self.addEventListener("install", event => {
-  event.waitUntil(
-    caches
-      .open(CACHE_NAME)
-      .then(cache => cache.addAll(APP_SHELL))
-      .then(() => self.skipWaiting())
-  );
+  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
 });
 
-
-/**
- * 활성화
- */
 self.addEventListener("activate", event => {
   event.waitUntil(
-    caches
-      .keys()
-      .then(cacheNames => {
-        return Promise.all(
-          cacheNames
-            .filter(cacheName => cacheName !== CACHE_NAME)
-            .map(cacheName => caches.delete(cacheName))
-        );
-      })
+    caches.keys()
+      .then(names => Promise.all(names.filter(name => name !== CACHE_NAME).map(name => caches.delete(name))))
       .then(() => self.clients.claim())
   );
 });
 
-
-/**
- * 네트워크 요청
- */
 self.addEventListener("fetch", event => {
   const request = event.request;
+  if (request.method !== "GET") return;
 
-  if (request.method !== "GET") {
-    return;
-  }
-
-  const requestUrl = new URL(request.url);
-
-  /*
-   * manualkit.pages.dev는 다른 도메인이므로
-   * MONA Hub 캐시에서 관리하지 않음
-   */
-  if (requestUrl.origin !== self.location.origin) {
-    return;
-  }
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
 
   event.respondWith(
     fetch(request)
       .then(response => {
-        const responseClone = response.clone();
-
-        caches
-          .open(CACHE_NAME)
-          .then(cache => cache.put(request, responseClone));
-
+        const clone = response.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
         return response;
       })
-      .catch(() => {
-        return caches.match(request);
-      })
+      .catch(() => caches.match(request))
   );
 });

@@ -2,78 +2,69 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1, viewport-fit=cover"
-  >
-
-  <meta name="theme-color" content="#ffffff">
-
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1f2228">
   <title>MONA Hub</title>
-
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
-
   <link rel="stylesheet" href="/style.css">
 </head>
-
 <body>
-
-  <!-- 브라우저로 접속했을 때만 표시 -->
   <section id="installView" aria-labelledby="installTitle">
     <div class="install-card">
-
-      <img
-        class="install-logo"
-        src="/icons/icon-192.png"
-        alt="MONA Hub"
-      >
-
+      <img class="install-logo" src="/icons/icon-192.png" alt="MONA Hub">
       <h1 id="installTitle">MONA Hub</h1>
-
-      <p class="install-description">
-        MONA Hub는 설치형 애플리케이션으로 제공됩니다.
-      </p>
-
-      <button
-        id="installButton"
-        type="button"
-      >
-        MONA Hub 설치
-      </button>
-
-      <p
-        id="installGuide"
-        class="install-guide"
-      >
-        설치 준비 중...
-      </p>
-
+      <p class="install-description">MONA Hub는 설치형 애플리케이션으로 제공됩니다.</p>
+      <button id="installButton" type="button">MONA Hub 설치</button>
+      <p id="installGuide" class="install-guide">설치 준비 중...</p>
     </div>
   </section>
 
+  <main id="appView" aria-label="MONA Hub 앱 런처">
+    <header class="hub-header">
+      <div class="hub-brand">
+        <img class="hub-mark" src="/icons/icon-192.png" alt="">
+        <span>MONA Hub</span>
+      </div>
 
-  <!-- 설치된 PWA로 실행했을 때만 표시 -->
-  <main id="appView">
+      <div class="monas-brand" aria-label="MONAS">
+        <img
+          class="monas-logo"
+          src="/logos/monas-logo.svg"
+          alt="MONAS"
+          onerror="this.hidden=true; this.nextElementSibling.hidden=false;"
+        >
+        <span class="monas-logo-fallback" hidden>MONAS</span>
+      </div>
+    </header>
 
-    <iframe
-      id="manualKitFrame"
-      src="https://manualkit.pages.dev/editor"
-      title="Manual Kit"
-      allow="clipboard-read; clipboard-write"
-    ></iframe>
+    <section class="hub-content" aria-labelledby="appsTitle">
+      <div class="section-heading">
+        <h1 id="appsTitle">Apps</h1>
+        <span>MONA applications</span>
+      </div>
 
-    <div id="loadingScreen">
-      <strong>MONA Hub</strong>
-      <span>Manual Kit 불러오는 중...</span>
-    </div>
+      <div class="app-list">
+        <button class="app-card" id="openManualKit" type="button">
+          <span class="app-icon" aria-hidden="true">
+            <span class="app-icon-sheet"></span>
+            <span class="app-icon-line app-icon-line--1"></span>
+            <span class="app-icon-line app-icon-line--2"></span>
+            <span class="app-icon-line app-icon-line--3"></span>
+          </span>
+          <span class="app-name">Manual Kit</span>
+          <span class="app-description">기술문서 작성</span>
+        </button>
+      </div>
+    </section>
 
+    <footer class="hub-footer">
+      <span class="status-dot" aria-hidden="true"></span>
+      <span>MONA Hub</span>
+    </footer>
   </main>
 
-
   <script type="module" src="/app.js"></script>
-
 </body>
 </html>

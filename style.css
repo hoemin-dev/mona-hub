@@ -1,244 +1,87 @@
 :root {
-  font-family:
-    Arial,
-    "Noto Sans KR",
-    "Nanum Gothic",
-    sans-serif;
-
-  color: #222;
-  background: #f5f7f8;
+  font-family: Arial, "Noto Sans KR", "Nanum Gothic", sans-serif;
+  color: #eef2f0;
+  background: #1f2228;
+  color-scheme: dark;
 }
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
+html, body { width: 100%; height: 100%; margin: 0; }
+body { overflow: hidden; }
+button { font: inherit; }
 
-html,
-body {
-  width: 100%;
-  height: 100%;
-  margin: 0;
-}
-
-body {
-  overflow: hidden;
-}
-
-
-/* 초기 상태 */
-
-#installView,
-#appView {
-  display: none;
-}
-
-
-/* 브라우저 접속 화면 */
-
-body.browser-mode #installView {
-  display: flex;
-}
+#installView, #appView { display: none; }
+body.browser-mode #installView { display: flex; }
+body.app-mode #appView { display: flex; }
 
 #installView {
-  width: 100%;
-  height: 100%;
-
-  align-items: center;
-  justify-content: center;
-
-  padding:
-    max(24px, env(safe-area-inset-top))
-    max(24px, env(safe-area-inset-right))
-    max(24px, env(safe-area-inset-bottom))
-    max(24px, env(safe-area-inset-left));
-
-  background:
-    radial-gradient(
-      circle at top,
-      #ffffff 0%,
-      #f4f7f5 55%,
-      #e9efeb 100%
-    );
+  width: 100%; height: 100%; align-items: center; justify-content: center;
+  padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+  background: radial-gradient(circle at top, #31363f 0%, #202329 55%, #17191e 100%);
 }
-
 .install-card {
-  width: min(440px, 100%);
-
-  padding: 48px 40px;
-
-  border: 1px solid #e0e6e2;
-  border-radius: 20px;
-
-  background: rgba(255, 255, 255, 0.94);
-
-  box-shadow:
-    0 20px 50px rgba(0, 0, 0, 0.08);
-
-  text-align: center;
+  width: min(440px, 100%); padding: 48px 40px; border: 1px solid #3b414b;
+  border-radius: 20px; background: rgba(31,34,40,.96); box-shadow: 0 24px 60px rgba(0,0,0,.36); text-align: center;
 }
-
-.install-logo {
-  display: block;
-
-  width: 96px;
-  height: 96px;
-
-  margin: 0 auto 24px;
-
-  border-radius: 20px;
-}
-
-.install-card h1 {
-  margin: 0;
-
-  font-size: 32px;
-  font-weight: 700;
-  letter-spacing: -0.5px;
-}
-
-.install-description {
-  margin: 16px 0 30px;
-
-  color: #666;
-
-  font-size: 16px;
-  line-height: 1.7;
-}
-
-#installButton {
-  width: 100%;
-
-  padding: 15px 20px;
-
-  border: 0;
-  border-radius: 10px;
-
-  background: #00a651;
-  color: #fff;
-
-  font-size: 16px;
-  font-weight: 700;
-
-  cursor: pointer;
-
-  transition:
-    background 0.15s ease,
-    transform 0.15s ease;
-}
-
-#installButton:hover {
-  background: #008f46;
-}
-
-#installButton:active {
-  transform: translateY(1px);
-}
-
-#installButton:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
-
-.install-guide {
-  margin: 18px 0 0;
-
-  color: #888;
-
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-
-/* PWA 앱 화면 */
-
-body.app-mode #appView {
-  display: block;
-}
+.install-logo { display: block; width: 96px; height: 96px; margin: 0 auto 24px; border-radius: 20px; }
+.install-card h1 { margin: 0; font-size: 32px; letter-spacing: -.5px; }
+.install-description { margin: 16px 0 30px; color: #aeb5bf; font-size: 16px; line-height: 1.7; }
+#installButton { width: 100%; padding: 15px 20px; border: 0; border-radius: 10px; background: #369a68; color: #fff; font-weight: 700; cursor: pointer; }
+#installButton:hover { background: #42ad79; }
+#installButton:disabled { cursor: default; opacity: .6; }
+.install-guide { margin: 18px 0 0; color: #8f97a2; font-size: 13px; line-height: 1.6; }
 
 #appView {
-  position: relative;
-
-  width: 100%;
-  height: 100%;
-
-  background: #fff;
+  flex-direction: column; width: 100%; height: 100%; min-width: 300px; min-height: 440px;
+  background: #1f2228;
 }
 
-#manualKitFrame {
-  display: block;
-
-  width: 100%;
-  height: 100%;
-
-  border: 0;
-
-  background: #fff;
+.hub-header {
+  min-height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 24px;
+  padding: 0 24px; border-bottom: 1px solid #30343c; background: #202329;
+  -webkit-app-region: drag;
 }
+.hub-brand { display: flex; align-items: center; gap: 11px; min-width: 0; font-size: 16px; font-weight: 700; letter-spacing: -.2px; }
+.hub-mark { width: 32px; height: 32px; border-radius: 8px; flex: 0 0 auto; }
+.monas-brand { display: flex; align-items: center; justify-content: flex-end; min-width: 92px; }
+.monas-logo { display: block; width: 104px; max-height: 25px; object-fit: contain; object-position: right center; opacity: .92; }
+.monas-logo-fallback { color: #eef2f0; font-size: 18px; font-weight: 700; letter-spacing: 2px; }
 
-
-/* 로딩 화면 */
-
-#loadingScreen {
-  position: absolute;
-  inset: 0;
-
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-
-  gap: 10px;
-
-  background: #fff;
-
-  transition:
-    opacity 0.25s ease,
-    visibility 0.25s ease;
+.hub-content { flex: 1; min-height: 0; overflow: auto; padding: 26px 24px 32px; }
+.section-heading { display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; }
+.section-heading h1 { margin: 0; font-size: 20px; font-weight: 700; }
+.section-heading span { color: #818995; font-size: 12px; }
+.app-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(126px, 126px)); gap: 16px; align-items: start; }
+.app-card {
+  width: 126px; min-height: 158px; display: flex; flex-direction: column; align-items: center;
+  padding: 14px 10px 12px; border: 1px solid transparent; border-radius: 16px;
+  background: transparent; color: inherit; cursor: pointer; text-align: center;
+  transition: background .15s ease, border-color .15s ease, transform .15s ease;
 }
-
-#loadingScreen strong {
-  color: #222;
-
-  font-size: 24px;
-  font-weight: 700;
+.app-card:hover { background: #292d34; border-color: #3a4049; transform: translateY(-2px); }
+.app-card:active { transform: translateY(0); }
+.app-card:focus-visible { outline: 2px solid #52c28a; outline-offset: 3px; }
+.app-icon {
+  position: relative; width: 88px; height: 88px; display: block; margin-bottom: 13px;
+  border: 1px solid #474e59; border-radius: 20px; background: linear-gradient(145deg,#303640,#252a31);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 10px 24px rgba(0,0,0,.2);
 }
+.app-icon-sheet { position: absolute; left: 25px; top: 18px; width: 38px; height: 51px; border: 2px solid #74d8a4; border-radius: 5px; background: rgba(82,194,138,.08); }
+.app-icon-sheet::after { content: ""; position: absolute; right: -2px; top: -2px; width: 12px; height: 12px; border-left: 2px solid #74d8a4; border-bottom: 2px solid #74d8a4; background: #2d333b; clip-path: polygon(0 0,100% 100%,0 100%); }
+.app-icon-line { position: absolute; left: 33px; height: 2px; border-radius: 2px; background: #74d8a4; opacity: .9; }
+.app-icon-line--1 { top: 35px; width: 23px; }
+.app-icon-line--2 { top: 43px; width: 19px; }
+.app-icon-line--3 { top: 51px; width: 22px; }
+.app-name { font-size: 14px; font-weight: 700; line-height: 1.35; }
+.app-description { margin-top: 4px; color: #858d98; font-size: 11px; line-height: 1.4; }
 
-#loadingScreen span {
-  color: #777;
+.hub-footer { min-height: 34px; display: flex; align-items: center; gap: 7px; padding: 0 16px; border-top: 1px solid #30343c; color: #7f8792; font-size: 11px; }
+.status-dot { width: 6px; height: 6px; border-radius: 50%; background: #52c28a; box-shadow: 0 0 8px rgba(82,194,138,.55); }
 
-  font-size: 14px;
-}
-
-#loadingScreen.is-hidden {
-  visibility: hidden;
-  opacity: 0;
-  pointer-events: none;
-}
-
-
-@media (max-width: 520px) {
-  .install-card {
-    padding: 38px 24px;
-  }
-
-  .install-card h1 {
-    font-size: 28px;
-  }
-}
-
-/* MONA Hub custom title bar */
-#appTitleBar{
-position:fixed;
-left:env(titlebar-area-x,0);
-top:env(titlebar-area-y,0);
-width:env(titlebar-area-width,100%);
-height:env(titlebar-area-height,40px);
-display:flex;
-align-items:center;
-padding:0 14px;
-background:#14352a;
-color:#fff;
-font-weight:600;
--webkit-app-region:drag;
-z-index:1000;
+@media (max-width: 420px) {
+  .hub-header { padding: 0 16px; }
+  .hub-brand span { display: none; }
+  .hub-content { padding: 22px 16px 28px; }
+  .app-list { grid-template-columns: repeat(auto-fill, minmax(110px, 110px)); gap: 10px; }
+  .app-card { width: 110px; }
 }
