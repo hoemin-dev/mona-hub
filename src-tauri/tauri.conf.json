@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "kr.co.monas.monahub",
   "build": {
-    "frontendDist": "../web",
+    "frontendDist": "../web/app/",
     "devUrl": "http://127.0.0.1:5500/web/app/"
   },
   "app": {
@@ -16,11 +16,13 @@
         "height": 720,
         "minWidth": 72,
         "minHeight": 400,
-        "resizable": true,
+        "resizable": false,
         "fullscreen": false,
-        "decorations": true,
+        "decorations": false,
         "alwaysOnTop": true,
-        "center": false
+        "center": false,
+        "skipTaskbar": true,
+        "shadow": false
       }
     ],
     "security": {

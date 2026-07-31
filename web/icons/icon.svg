@@ -24,7 +24,7 @@
      inkscape:document-units="mm"
      showgrid="false"
      inkscape:zoom="1"
-     inkscape:cx="209.5"
+     inkscape:cx="130.5"
      inkscape:cy="466.5"
      inkscape:window-width="1920"
      inkscape:window-height="1027"
@@ -96,9 +96,9 @@
        d="m 362.19336,213.11719 c -17.6691,0 -31.98828,14.31917 -31.98828,31.98828 v 31.84765 64.15626 31.93945 c 0,8.36108 3.19191,15.97283 8.42127,21.67905 5.84663,6.37977 33.05743,33.21124 38.9909,39.03003 5.76787,5.6564 13.66346,9.14248 22.37298,9.14248 h 31.84766 64.31641 31.85937 c 17.66907,0 31.97656,-14.34755 31.97656,-32.05664 V 378.9043 314.74805 282.90039 c 0,-8.93975 -3.66256,-17.02195 -9.56999,-22.82589 -5.76839,-5.66734 -31.79146,-31.77313 -37.55942,-37.55919 -5.78784,-5.806 -13.79429,-9.39812 -22.64402,-9.39812 h -31.85938 -64.3164 z"
        transform="scale(0.26458333)"
        sodipodi:nodetypes="ssccssssccssccssssccs"
-       inkscape:export-filename="D:\work\mona-hub\icons\icon-192.png"
-       inkscape:export-xdpi="79.820869"
-       inkscape:export-ydpi="79.820869" />
+       inkscape:export-filename="D:\work\mona-hub\web\icons\icon-1024.png"
+       inkscape:export-xdpi="425.70764"
+       inkscape:export-ydpi="425.70764" />
   </g>
   <g
      inkscape:groupmode="layer"
