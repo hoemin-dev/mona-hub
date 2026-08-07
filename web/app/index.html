@@ -3,65 +3,48 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#1f2228">
+  <meta name="theme-color" content="#171a20">
   <title>MONA Hub</title>
-  <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="icon" href="./icons/icon-192.png">
-  <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <section id="installView" aria-labelledby="installTitle">
-    <div class="install-card">
-      <img class="install-logo" src="./icons/icon-192.png" alt="MONA Hub">
-      <h1 id="installTitle">MONA Hub</h1>
-      <p class="install-description">MONA Hub는 설치형 애플리케이션으로 제공됩니다.</p>
-      <button id="installButton" type="button">MONA Hub 설치</button>
-      <p id="installGuide" class="install-guide">설치 준비 중...</p>
-    </div>
-  </section>
-
-  <main id="appView" aria-label="MONA Hub 앱 런처">
-    <header class="hub-header">
-      <div class="hub-brand">
-        <img class="hub-mark" src="./icons/icon-192.png" alt="">
-        <span>MONA Hub</span>
-      </div>
-
-      <div class="monas-brand" aria-label="MONAS">
-        <img
-          class="monas-logo"
-          src="./logos/monas-logo.svg"
-          alt="MONAS"
-          onerror="this.hidden=true; this.nextElementSibling.hidden=false;"
-        >
-        <span class="monas-logo-fallback" hidden>MONAS</span>
-      </div>
+  <main class="launcher" aria-label="MONA Hub 앱 런처">
+    <header class="launcher-header">
+      <div class="brand-mark" aria-hidden="true">M</div>
+      <span class="brand-name">MONA</span>
     </header>
 
-    <section class="hub-content" aria-labelledby="appsTitle">
-      <div class="section-heading">
-        <h1 id="appsTitle">Apps</h1>
-        <span>MONA applications</span>
-      </div>
+    <nav class="app-list" aria-label="MONA 애플리케이션">
+      <button
+        class="app-button"
+        type="button"
+        data-app-name="Manual Kit"
+        data-app-url="https://manualkit.pages.dev/editor"
+        aria-label="Manual Kit 열기"
+      >
+        <span class="app-icon app-icon--manual" aria-hidden="true">
+          <span></span>
+        </span>
+        <span class="app-label">Manual<br>Kit</span>
+      </button>
 
-      <div class="app-list">
-        <button class="app-card" id="openManualKit" type="button">
-          <span class="app-icon" aria-hidden="true">
-            <span class="app-icon-sheet"></span>
-            <span class="app-icon-line app-icon-line--1"></span>
-            <span class="app-icon-line app-icon-line--2"></span>
-            <span class="app-icon-line app-icon-line--3"></span>
-          </span>
-          <span class="app-name">Manual Kit</span>
-          <span class="app-description">기술문서 작성</span>
-        </button>
-      </div>
-    </section>
+      <button
+        class="app-button app-button--pending"
+        type="button"
+        data-app-name="PDFY"
+        aria-label="PDFY 준비 중"
+        aria-describedby="pdfyStatus"
+        disabled
+      >
+        <span class="app-icon app-icon--pdf" aria-hidden="true">PDF</span>
+        <span class="app-label">PDFY</span>
+        <span id="pdfyStatus" class="app-badge">준비 중</span>
+      </button>
+    </nav>
 
-    <footer class="hub-footer">
+    <footer class="launcher-footer" aria-live="polite">
       <span class="status-dot" aria-hidden="true"></span>
-      <span>MONA Hub</span>
+      <span id="launcherStatus" class="status-text">준비됨</span>
     </footer>
   </main>
 

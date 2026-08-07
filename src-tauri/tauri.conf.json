@@ -4,13 +4,13 @@
   "version": "0.1.0",
   "identifier": "kr.co.monas.monahub",
   "build": {
-    "frontendDist": "../web/app",
-    "devUrl": "http://127.0.0.1:5500/web/app/"
+    "frontendDist": "../web/app"
   },
   "app": {
     "windows": [
       {
         "label": "main",
+        "useHttpsScheme": true,
         "title": "MONA-HUB",
         "width": 88,
         "height": 720,
@@ -31,7 +31,8 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
+    "publisher": "MONAS Pump Co., Ltd.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

@@ -1,0 +1,261 @@
+:root {
+  font-family: "Segoe UI", Arial, sans-serif;
+  color: #f5f7f6;
+  background: #171a20;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  min-width: 72px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% -8%, rgb(82 194 138 / 13%), transparent 25%),
+    #171a20;
+  user-select: none;
+}
+
+button {
+  font: inherit;
+}
+
+.launcher {
+  display: grid;
+  grid-template-rows: 82px minmax(0, 1fr) 48px;
+  width: 100%;
+  height: 100%;
+  border-left: 1px solid #30353d;
+  background: linear-gradient(180deg, rgb(31 35 42 / 96%), rgb(23 26 32 / 98%));
+}
+
+.launcher-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border-bottom: 1px solid #30353d;
+  -webkit-app-region: drag;
+}
+
+.brand-mark {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid #5fcb94;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #3db67a, #238d5a);
+  box-shadow: 0 7px 20px rgb(18 139 84 / 25%), inset 0 1px 0 rgb(255 255 255 / 25%);
+  color: #fff;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -1px;
+}
+
+.brand-name {
+  color: #98a19e;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+}
+
+.app-list {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 14px 6px;
+  scrollbar-width: none;
+}
+
+.app-list::-webkit-scrollbar {
+  display: none;
+}
+
+.app-button {
+  position: relative;
+  display: flex;
+  width: 68px;
+  min-height: 88px;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 15px;
+  background: transparent;
+  color: #e9edeb;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+  -webkit-app-region: no-drag;
+}
+
+.app-button:hover {
+  border-color: #3d454e;
+  background: #292e36;
+  transform: translateY(-1px);
+}
+
+.app-button:active {
+  transform: translateY(0);
+}
+
+.app-button:focus-visible {
+  outline: 2px solid #63d69d;
+  outline-offset: -2px;
+}
+
+.app-button:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+
+.app-button:disabled:hover {
+  border-color: transparent;
+  background: transparent;
+  transform: none;
+}
+
+.app-icon {
+  position: relative;
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid #49515c;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #303741, #242931);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 6%), 0 6px 14px rgb(0 0 0 / 20%);
+}
+
+.app-icon--manual::before {
+  content: "";
+  width: 18px;
+  height: 23px;
+  border: 2px solid #72d9a5;
+  border-radius: 3px;
+  background: rgb(82 194 138 / 8%);
+}
+
+.app-icon--manual::after,
+.app-icon--manual span::before,
+.app-icon--manual span::after {
+  content: "";
+  position: absolute;
+  left: 13px;
+  width: 15px;
+  height: 2px;
+  border-radius: 2px;
+  background: #72d9a5;
+}
+
+.app-icon--manual::after {
+  top: 16px;
+}
+
+.app-icon--manual span::before {
+  top: 21px;
+  width: 12px;
+}
+
+.app-icon--manual span::after {
+  top: 26px;
+  width: 14px;
+}
+
+.app-icon--pdf {
+  border-color: #715b5d;
+  background: linear-gradient(145deg, #463238, #2d282f);
+  color: #f08a8f;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+}
+
+.app-label {
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.15;
+  text-align: center;
+}
+
+.app-badge {
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: #343942;
+  color: #aeb6bf;
+  font-size: 8px;
+  line-height: 1.2;
+}
+
+.launcher-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-top: 1px solid #30353d;
+  color: #818a91;
+  font-size: 8px;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #52c28a;
+  box-shadow: 0 0 8px rgb(82 194 138 / 65%);
+}
+
+.status-text {
+  max-width: 68px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-height: 520px) {
+  .launcher {
+    grid-template-rows: 66px minmax(0, 1fr) 38px;
+  }
+
+  .brand-mark {
+    width: 34px;
+    height: 34px;
+  }
+
+  .brand-name {
+    display: none;
+  }
+
+  .app-list {
+    padding-block: 9px;
+  }
+
+  .app-button {
+    min-height: 78px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-button {
+    transition: none;
+  }
+}
