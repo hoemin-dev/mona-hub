@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/remote-schema.json",
+  "identifier": "remote-auth",
+  "description": "Restricts AppBar IPC access to MonaHub's authenticated web origins.",
+  "windows": ["main"],
+  "remote": {
+    "urls": [
+      "https://dev-hub.monas.co.kr/*",
+      "https://hub.monas.co.kr/*"
+    ]
+  },
+  "permissions": []
+}

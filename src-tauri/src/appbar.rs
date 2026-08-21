@@ -2,11 +2,14 @@
 
 use std::{
     mem::{size_of, transmute},
-    sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, Ordering},
+    sync::{
+        atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, Ordering},
+        OnceLock,
+    },
 };
 
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use tauri::WebviewWindow;
+use tauri::{AppHandle, Manager, WebviewWindow};
 
 use windows::{
     core::w,
@@ -39,8 +42,8 @@ use windows::{
     },
 };
 
-const COLLAPSED_WIDTH: i32 = 88;
-const MIN_WIDTH: i32 = 72;
+const COLLAPSED_WIDTH: i32 = 36;
+const MIN_WIDTH: i32 = 36;
 const MAX_WIDTH: i32 = 800;
 
 /*
@@ -54,6 +57,85 @@ static ORIGINAL_WNDPROC: AtomicIsize = AtomicIsize::new(0);
 static CALLBACK_MESSAGE: AtomicU32 = AtomicU32::new(0);
 static APPBAR_WIDTH: AtomicI32 = AtomicI32::new(COLLAPSED_WIDTH);
 static REGISTERED: AtomicBool = AtomicBool::new(false);
+static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
+static WORK_SCHEDULED: AtomicBool = AtomicBool::new(false);
+static REPOSITION_REQUESTED: AtomicBool = AtomicBool::new(false);
+static ACTIVATE_NOTIFICATION_REQUESTED: AtomicBool = AtomicBool::new(false);
+static SHELL_NOTIFICATION_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+/// WndProc에서는 Shell 호출이나 창 이동을 직접 실행하지 않고 작업만 예약한다.
+/// 여러 Windows 메시지가 연속으로 들어오면 하나의 작업으로 합쳐 처리한다.
+fn queue_appbar_work(
+    hwnd: HWND,
+    reposition: bool,
+    notify_activate: bool,
+    notify_position: bool,
+) {
+    if reposition {
+        REPOSITION_REQUESTED.store(true, Ordering::SeqCst);
+    }
+
+    if notify_activate {
+        ACTIVATE_NOTIFICATION_REQUESTED.store(true, Ordering::SeqCst);
+    }
+
+    if notify_position {
+        SHELL_NOTIFICATION_REQUESTED.store(true, Ordering::SeqCst);
+    }
+
+    if WORK_SCHEDULED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    let Some(app) = APP_HANDLE.get().cloned() else {
+        WORK_SCHEDULED.store(false, Ordering::SeqCst);
+        return;
+    };
+
+    let hwnd_value = hwnd_to_isize(hwnd);
+    let schedule_result = app.run_on_main_thread(move || {
+        let hwnd = HWND(hwnd_value as *mut std::ffi::c_void);
+
+        if REGISTERED.load(Ordering::SeqCst) && is_appbar_hwnd(hwnd) {
+            if REPOSITION_REQUESTED.swap(false, Ordering::SeqCst) {
+                let width = APPBAR_WIDTH.load(Ordering::SeqCst);
+                let _ = position_appbar(hwnd, width);
+            }
+
+            if ACTIVATE_NOTIFICATION_REQUESTED.swap(false, Ordering::SeqCst) {
+                unsafe {
+                    let mut data = appbar_data(hwnd);
+                    SHAppBarMessage(ABM_ACTIVATE, &mut data);
+                }
+            }
+
+            if SHELL_NOTIFICATION_REQUESTED.swap(false, Ordering::SeqCst) {
+                unsafe {
+                    let mut data = appbar_data(hwnd);
+                    SHAppBarMessage(ABM_WINDOWPOSCHANGED, &mut data);
+                }
+            }
+        } else {
+            REPOSITION_REQUESTED.store(false, Ordering::SeqCst);
+            ACTIVATE_NOTIFICATION_REQUESTED.store(false, Ordering::SeqCst);
+            SHELL_NOTIFICATION_REQUESTED.store(false, Ordering::SeqCst);
+        }
+
+        WORK_SCHEDULED.store(false, Ordering::SeqCst);
+
+        // position_appbar의 MoveWindow 중 새 요청이 들어온 경우 다음 tick에서 처리한다.
+        if REPOSITION_REQUESTED.load(Ordering::SeqCst)
+            || ACTIVATE_NOTIFICATION_REQUESTED.load(Ordering::SeqCst)
+            || SHELL_NOTIFICATION_REQUESTED.load(Ordering::SeqCst)
+        {
+            queue_appbar_work(hwnd, false, false, false);
+        }
+    });
+
+    if schedule_result.is_err() {
+        WORK_SCHEDULED.store(false, Ordering::SeqCst);
+    }
+}
 
 /// Tauri 창에서 Windows HWND를 얻는다.
 fn get_hwnd(window: &WebviewWindow) -> Result<HWND, String> {
@@ -211,6 +293,7 @@ fn position_appbar(hwnd: HWND, width: i32) -> Result<(), String> {
             true,
         )
         .map_err(|error| format!("AppBar 창 이동 실패: {error}"))?;
+
     }
 
     Ok(())
@@ -260,8 +343,7 @@ unsafe extern "system" fn appbar_wndproc(
              * 작업표시줄의 위치, 크기, 표시 상태가 변경되거나
              * 다른 AppBar가 추가·삭제·변경되면 다시 협상한다.
              */
-            let width = APPBAR_WIDTH.load(Ordering::SeqCst);
-            let _ = position_appbar(hwnd, width);
+            queue_appbar_work(hwnd, true, false, false);
         }
 
         return LRESULT(0);
@@ -273,8 +355,7 @@ unsafe extern "system" fn appbar_wndproc(
              * AppBar 활성화 상태를 Shell에 알린다.
              */
             if REGISTERED.load(Ordering::SeqCst) && is_appbar_hwnd(hwnd) {
-                let mut data = appbar_data(hwnd);
-                SHAppBarMessage(ABM_ACTIVATE, &mut data);
+                queue_appbar_work(hwnd, false, true, false);
             }
         }
 
@@ -283,8 +364,7 @@ unsafe extern "system" fn appbar_wndproc(
              * AppBar 창 위치가 변경되었음을 Shell에 알린다.
              */
             if REGISTERED.load(Ordering::SeqCst) && is_appbar_hwnd(hwnd) {
-                let mut data = appbar_data(hwnd);
-                SHAppBarMessage(ABM_WINDOWPOSCHANGED, &mut data);
+                queue_appbar_work(hwnd, false, false, true);
             }
         }
 
@@ -294,8 +374,7 @@ unsafe extern "system" fn appbar_wndproc(
              * AppBar 영역을 다시 계산한다.
              */
             if REGISTERED.load(Ordering::SeqCst) && is_appbar_hwnd(hwnd) {
-                let width = APPBAR_WIDTH.load(Ordering::SeqCst);
-                let _ = position_appbar(hwnd, width);
+                queue_appbar_work(hwnd, true, false, false);
             }
         }
 
@@ -374,6 +453,7 @@ pub fn register(window: &WebviewWindow, width: i32) -> Result<(), String> {
     }
 
     let hwnd = get_hwnd(window)?;
+    let _ = APP_HANDLE.set(window.app_handle().clone());
 
     apply_tool_window_style(hwnd)?;
 
@@ -440,9 +520,9 @@ pub fn register(window: &WebviewWindow, width: i32) -> Result<(), String> {
     Ok(())
 }
 
-/// 기본 88px AppBar 등록
+/// 최초 실행은 36px(Small), 이후 재등록은 현재 선택 폭을 유지한다.
 pub fn register_collapsed(window: &WebviewWindow) -> Result<(), String> {
-    register(window, COLLAPSED_WIDTH)
+    register(window, APPBAR_WIDTH.load(Ordering::SeqCst))
 }
 
 /// AppBar 폭 변경
@@ -484,7 +564,9 @@ pub fn unregister(window: &WebviewWindow) -> Result<(), String> {
 
     APPBAR_HWND.store(0, Ordering::SeqCst);
     CALLBACK_MESSAGE.store(0, Ordering::SeqCst);
-    APPBAR_WIDTH.store(COLLAPSED_WIDTH, Ordering::SeqCst);
+    REPOSITION_REQUESTED.store(false, Ordering::SeqCst);
+    ACTIVATE_NOTIFICATION_REQUESTED.store(false, Ordering::SeqCst);
+    SHELL_NOTIFICATION_REQUESTED.store(false, Ordering::SeqCst);
 
     restore_result
 }

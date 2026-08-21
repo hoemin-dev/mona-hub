@@ -1,43 +1,53 @@
-# ==========================
-# Node.js
-# ==========================
+# Dependencies
 node_modules/
 
-# ==========================
-# Tauri / Rust
-# ==========================
-src-tauri/target/
-target/
+# Build output and caches
+dist/
+build/
+coverage/
+.cache/
+.parcel-cache/
+.vite/
+*.tsbuildinfo
 
-# ==========================
-# Environment
-# ==========================
+# Rust / Tauri build output
+target/
+src-tauri/target*/
+src-tauri/gen/schemas/
+**/*.rs.bk
+
+# Local environment files (keep shareable templates)
 .env
 .env.*
+!.env.example
+!.env.sample
+!.env.template
 
-# ==========================
-# Logs
-# ==========================
+# Logs and runtime files
 *.log
+*.pid
+*.pid.lock
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# ==========================
-# IDE
-# ==========================
+# Temporary files
+temp/
+tmp/
+*.tmp
+*.swp
+*~
+
+# Editors
 .vscode/
 .idea/
+*.suo
+*.user
+*.sln.docstates
 
-# ==========================
-# OS
-# ==========================
+# Operating system metadata
 .DS_Store
 Thumbs.db
-desktop.ini
-
-# ==========================
-# Rust backup
-# ==========================
-**/*.rs.bk
+Desktop.ini
+$RECYCLE.BIN/

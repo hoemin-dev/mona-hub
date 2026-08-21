@@ -3,24 +3,46 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
+use tauri_plugin_log::{Target, TargetKind};
 
 #[cfg(target_os = "windows")]
 mod appbar;
 
+#[tauri::command]
+fn set_appbar_width(window: tauri::WebviewWindow, width: i32) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        appbar::resize(&window, width)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (window, width);
+        Err("AppBar 크기 변경은 Windows에서만 지원됩니다.".to_string())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![set_appbar_width])
         .setup(|app| {
             /*
              * 개발 모드 로그
              */
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log::LevelFilter::Info)
+                    .targets([
+                        Target::new(TargetKind::LogDir {
+                            file_name: Some("mona-hub".into()),
+                        }),
+                        Target::new(TargetKind::Stdout),
+                    ])
+                    .build(),
+            )?;
+
+            log::info!("MONA-HUB startup");
 
             /*
              * Windows AppBar 등록
@@ -119,6 +141,8 @@ pub fn run() {
                      * 완전 종료
                      */
                     "quit" => {
+                        log::info!("tray quit requested");
+
                         #[cfg(target_os = "windows")]
                         {
                             if let Some(window) =

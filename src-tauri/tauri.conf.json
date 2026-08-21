@@ -1,20 +1,35 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "MONA-HUB",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "identifier": "kr.co.monas.monahub",
   "build": {
-    "frontendDist": "../web/app"
+    "beforeDevCommand": "npm run web:dev",
+    "devUrl": "http://localhost:1420/prelogin",
+    "frontendDist": [
+      "../web/app/index.html",
+      "../web/app/style.css",
+      "../web/app/app.js",
+      "../web/app/config/environment.js",
+      "../web/app/auth/auth-controller.js",
+      "../web/app/auth/access-auth-provider.js",
+      "icons/64x64.png",
+      "icons/32x32.png",
+      "../temp/manual-kit-transparent.png",
+      "../temp/pdfy-transparent.png",
+      "../temp/mona-radar.png"
+    ]
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "label": "main",
         "useHttpsScheme": true,
         "title": "MONA-HUB",
-        "width": 88,
+        "width": 36,
         "height": 720,
-        "minWidth": 72,
+        "minWidth": 36,
         "minHeight": 400,
         "resizable": false,
         "fullscreen": false,
