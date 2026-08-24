@@ -1,6 +1,6 @@
 import { authConfig } from "./config/environment.js";
-import { AuthController } from "./auth/auth-controller.js";
-import { AccessAuthProvider } from "./auth/access-auth-provider.js";
+import { AuthController } from "../auth/auth-controller.js";
+import { AccessAuthProvider } from "../auth/access-auth-provider.js";
 
 const launcherStatuses = document.querySelectorAll("#launcherStatus, [data-launcher-status]");
 const appButtons = document.querySelectorAll(".app-button[data-app-name]");
@@ -10,14 +10,9 @@ const allAppsButtons = document.querySelectorAll("#allAppsButton, [data-all-apps
 const profileButtons = document.querySelectorAll("#profileButton, [data-profile-button]");
 const profileLabels = document.querySelectorAll("#profileLabel, [data-profile-label]");
 
-const EXPANDED_WIDTH = 800;
-const COMPACT_WIDTH = 36;
-
-const SIZE_STORAGE_KEY = "mona-hub.appbar-size";
 const auth = new AuthController(new AccessAuthProvider(authConfig), authConfig);
 
 let isCompact = true;
-let isResizing = false;
 
 async function clearLegacyWebData() {
   try {
@@ -53,27 +48,6 @@ function applyCompactMode(compact) {
   });
 }
 
-function savedCompactMode() {
-  return localStorage.getItem(SIZE_STORAGE_KEY) !== "large";
-}
-
-async function restoreLauncherWidth() {
-  const compact = savedCompactMode();
-  applyCompactMode(compact);
-
-  const invoke = window.__TAURI__?.core?.invoke;
-  if (!invoke) return;
-
-  try {
-    await invoke("set_appbar_width", {
-      width: compact ? COMPACT_WIDTH : EXPANDED_WIDTH
-    });
-  } catch (error) {
-    console.error("저장된 AppBar 크기 복원 실패:", error);
-    setStatus("크기 복원 실패");
-  }
-}
-
 function renderAuthState() {
   const authenticated = auth.isAuthenticated();
   const identity = auth.getIdentity();
@@ -88,36 +62,6 @@ function renderAuthState() {
     label.textContent = authenticated ? (identity?.name || identity?.email || "로그아웃") : "로그인";
   });
   setStatus(authenticated ? "준비됨" : "로그아웃 상태");
-}
-
-async function toggleLauncherWidth() {
-  if (isResizing) return;
-
-  const invoke = window.__TAURI__?.core?.invoke;
-  if (!invoke) {
-    setStatus("크기 변경 불가");
-    return;
-  }
-
-  isResizing = true;
-  sizeToggles.forEach(toggle => { toggle.disabled = true; });
-
-  const nextCompact = !isCompact;
-  const nextWidth = nextCompact ? COMPACT_WIDTH : EXPANDED_WIDTH;
-  const previousCompact = isCompact;
-
-  try {
-    applyCompactMode(nextCompact);
-    await invoke("set_appbar_width", { width: nextWidth });
-    localStorage.setItem(SIZE_STORAGE_KEY, nextCompact ? "small" : "large");
-  } catch (error) {
-    applyCompactMode(previousCompact);
-    console.error("런처 바 크기 변경 실패:", error);
-    setStatus("크기 변경 실패");
-  } finally {
-    sizeToggles.forEach(toggle => { toggle.disabled = false; });
-    isResizing = false;
-  }
 }
 
 function openApp(button) {
@@ -173,7 +117,7 @@ largeAppButtons.forEach(button => {
   button.addEventListener("click", () => openApp(button));
 });
 
-sizeToggles.forEach(toggle => toggle.addEventListener("click", toggleLauncherWidth));
+sizeToggles.forEach(toggle => { toggle.hidden = true; });
 allAppsButtons.forEach(button => button.addEventListener("click", () => {
   setStatus("전체 앱 준비 중");
 }));
@@ -187,7 +131,7 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && auth.isAuthenticated()) auth.requireSession();
 });
 
-restoreLauncherWidth();
+applyCompactMode(true);
 renderAuthState();
 auth.requireSession();
 clearLegacyWebData();

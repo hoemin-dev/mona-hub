@@ -5,26 +5,15 @@
   "identifier": "kr.co.monas.monahub",
   "build": {
     "beforeDevCommand": "npm run web:dev",
-    "devUrl": "http://localhost:1420/prelogin",
-    "frontendDist": [
-      "../web/app/index.html",
-      "../web/app/style.css",
-      "../web/app/app.js",
-      "../web/app/config/environment.js",
-      "../web/app/auth/auth-controller.js",
-      "../web/app/auth/access-auth-provider.js",
-      "icons/64x64.png",
-      "icons/32x32.png",
-      "../temp/manual-kit-transparent.png",
-      "../temp/pdfy-transparent.png",
-      "../temp/mona-radar.png"
-    ]
+    "devUrl": "http://localhost:1420/",
+    "frontendDist": "../web"
   },
   "app": {
     "withGlobalTauri": true,
     "windows": [
       {
         "label": "main",
+        "url": "prelogin/index.html",
         "useHttpsScheme": true,
         "title": "MONA-HUB",
         "width": 36,

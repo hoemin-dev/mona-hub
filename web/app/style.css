@@ -176,7 +176,6 @@ html.mode-large .launcher-large {
   gap: 0;
   padding-top: 7px;
   border-bottom: 1px solid #30353d;
-  -webkit-app-region: drag;
 }
 
 .all-apps-button {
@@ -386,7 +385,6 @@ html.mode-large .launcher-large {
   display: grid;
   place-items: center;
   border-top: 1px solid #30353d;
-  -webkit-app-region: drag;
 }
 
 .profile-area {
@@ -394,7 +392,6 @@ html.mode-large .launcher-large {
   align-items: start;
   justify-items: center;
   padding-top: 4px;
-  -webkit-app-region: drag;
 }
 
 .profile-button {

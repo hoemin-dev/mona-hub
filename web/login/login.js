@@ -1,8 +1,13 @@
 const closeButton = document.getElementById("closeButton");
-const loginForm = document.getElementById("loginForm");
-const userIdInput = document.getElementById("userId");
-const passwordInput = document.getElementById("password");
+const minimizeButton = document.getElementById("minimizeButton");
+const loginButton = document.getElementById("loginButton");
 const loginStatus = document.getElementById("loginStatus");
+
+function pageLog(event) {
+  console.log(
+    `[LOGIN PAGE] ${event} t=${performance.now().toFixed(1)}ms visibility=${document.visibilityState}`
+  );
+}
 
 async function notifyPageReady() {
   const invoke = window.__TAURI__?.core?.invoke;
@@ -19,9 +24,7 @@ function setLoginStatus(message) {
   loginStatus.textContent = message;
 }
 
-async function submitLogin(credentials) {
-  // TODO: Replace this mock boundary with POST /auth/login.
-  void credentials;
+function handleLogin() {
   setLoginStatus("인증 서비스 연결 준비 중입니다.");
 }
 
@@ -36,18 +39,25 @@ async function closeLoginWindow() {
   }
 }
 
-loginForm.addEventListener("submit", async event => {
-  event.preventDefault();
+async function minimizeLoginWindow() {
+  const invoke = window.__TAURI__?.core?.invoke;
+  if (!invoke) return;
 
-  if (!loginForm.reportValidity()) return;
+  try {
+    await invoke("minimize_login_window");
+  } catch (error) {
+    console.error("로그인 창 최소화 실패:", error);
+  }
+}
 
-  await submitLogin({
-    userId: userIdInput.value,
-    password: passwordInput.value
-  });
-});
-
+loginButton.addEventListener("click", handleLogin);
 closeButton.addEventListener("click", closeLoginWindow);
+minimizeButton.addEventListener("click", minimizeLoginWindow);
+window.addEventListener("load", () => pageLog("load"));
+window.addEventListener("focus", () => pageLog("focus"));
+window.addEventListener("blur", () => pageLog("blur"));
+window.addEventListener("resize", () => pageLog("resize"));
+document.addEventListener("visibilitychange", () => pageLog("visibilitychange"));
 
-requestAnimationFrame(() => userIdInput.focus());
+pageLog("script evaluated");
 notifyPageReady();

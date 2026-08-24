@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <defs>
+    <radialGradient id="profileHead" cx="34%" cy="25%" r="78%">
+      <stop offset="0" stop-color="#7d8790"/>
+      <stop offset="0.38" stop-color="#505962"/>
+      <stop offset="1" stop-color="#252b31"/>
+    </radialGradient>
+    <linearGradient id="profileBody" x1="7" y1="10" x2="17" y2="21" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#69737c"/>
+      <stop offset="0.34" stop-color="#464f57"/>
+      <stop offset="1" stop-color="#20262c"/>
+    </linearGradient>
+  </defs>
+  <circle cx="12" cy="6.3" r="3.15" fill="url(#profileHead)" stroke="rgb(181 190 198 / 34%)" stroke-width="0.55"/>
+  <path d="M9.55 9.2c.55.45 1.4.7 2.45.7s1.9-.25 2.45-.7c.18 1.2.7 2.08 1.6 2.72 1.55 1.1 2.45 2.88 2.72 5.63.1.95-.65 1.78-1.6 1.78H6.83c-.95 0-1.7-.83-1.6-1.78.27-2.75 1.17-4.53 2.72-5.63.9-.64 1.42-1.52 1.6-2.72Z" fill="url(#profileBody)" stroke="rgb(174 184 192 / 30%)" stroke-width="0.55" stroke-linejoin="round"/>
+  <path d="M8.1 16.8c.38-2.35 1.25-3.63 2.48-4.22" fill="none" stroke="rgb(224 230 234 / 23%)" stroke-width="0.65" stroke-linecap="round"/>
+</svg>

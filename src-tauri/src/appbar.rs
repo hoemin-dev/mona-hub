@@ -1,16 +1,11 @@
 #![cfg(target_os = "windows")]
 
+use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::{
     mem::{size_of, transmute},
-    sync::{
-        atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, Ordering},
-        OnceLock,
-    },
+    sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering},
 };
-
-use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use tauri::{AppHandle, Manager, WebviewWindow};
-
+use tauri::WebviewWindow;
 use windows::{
     core::w,
     Win32::{
@@ -19,186 +14,78 @@ use windows::{
             GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
         },
         UI::{
+            HiDpi::GetDpiForWindow,
             Shell::{
-                SHAppBarMessage, APPBARDATA, ABE_RIGHT, ABM_ACTIVATE, ABM_NEW,
-                ABM_QUERYPOS, ABM_REMOVE, ABM_SETPOS, ABM_WINDOWPOSCHANGED,
-                ABN_POSCHANGED,
+                SHAppBarMessage, ABE_RIGHT, ABM_NEW, ABM_QUERYPOS, ABM_REMOVE, ABM_SETPOS,
+                ABM_WINDOWPOSCHANGED, ABN_POSCHANGED, APPBARDATA,
             },
             WindowsAndMessaging::{
-                CallWindowProcW, MoveWindow, RegisterWindowMessageW, SetWindowLongPtrW,
-                GWLP_WNDPROC, WM_ACTIVATE, WM_DESTROY, WM_DISPLAYCHANGE,
-                WM_DPICHANGED, WM_WINDOWPOSCHANGED, WNDPROC,
-                GetWindowLongPtrW, 
-    SetWindowPos,
-    GWL_EXSTYLE,
-    SWP_FRAMECHANGED,
-    SWP_NOMOVE,
-    SWP_NOSIZE,
-    SWP_NOZORDER,
-    WS_EX_APPWINDOW,
-    WS_EX_TOOLWINDOW,
+                CallWindowProcW, GetClientRect, GetWindowLongPtrW, GetWindowRect, PostMessageW,
+                RegisterWindowMessageW, SetWindowLongPtrW, SetWindowPos, GWLP_WNDPROC, GWL_EXSTYLE,
+                SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+                WM_ACTIVATE, WM_DESTROY, WM_DEVICECHANGE, WM_DISPLAYCHANGE, WM_DPICHANGED,
+                WM_SETTINGCHANGE, WM_WINDOWPOSCHANGED, WNDPROC, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
             },
         },
     },
 };
 
-const COLLAPSED_WIDTH: i32 = 36;
-const MIN_WIDTH: i32 = 36;
-const MAX_WIDTH: i32 = 800;
+pub const LOGICAL_WIDTH: i32 = 36;
+const DEFAULT_DPI: u32 = 96;
+const WM_MONA_REPOSITION: u32 = 0x8000 + 0x04d;
 
-/*
- * MONA-HUB는 AppBar 창을 하나만 사용하므로 전역 상태 하나로 관리한다.
- *
- * WndProc 안에서 Mutex를 잡은 채 MoveWindow를 호출하면
- * Windows 메시지가 재진입할 수 있으므로 Atomic을 사용한다.
- */
 static APPBAR_HWND: AtomicIsize = AtomicIsize::new(0);
 static ORIGINAL_WNDPROC: AtomicIsize = AtomicIsize::new(0);
 static CALLBACK_MESSAGE: AtomicU32 = AtomicU32::new(0);
-static APPBAR_WIDTH: AtomicI32 = AtomicI32::new(COLLAPSED_WIDTH);
 static REGISTERED: AtomicBool = AtomicBool::new(false);
-static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
-static WORK_SCHEDULED: AtomicBool = AtomicBool::new(false);
-static REPOSITION_REQUESTED: AtomicBool = AtomicBool::new(false);
-static ACTIVATE_NOTIFICATION_REQUESTED: AtomicBool = AtomicBool::new(false);
-static SHELL_NOTIFICATION_REQUESTED: AtomicBool = AtomicBool::new(false);
+static REPOSITION_QUEUED: AtomicBool = AtomicBool::new(false);
+static POSITIONING: AtomicBool = AtomicBool::new(false);
+static CALLBACK_COUNT: AtomicU32 = AtomicU32::new(0);
+static REPOSITION_COUNT: AtomicU32 = AtomicU32::new(0);
+static ACTIVATE_COUNT: AtomicU32 = AtomicU32::new(0);
+static WINDOWPOS_COUNT: AtomicU32 = AtomicU32::new(0);
+static QUERY_COUNT: AtomicU32 = AtomicU32::new(0);
+static SETPOS_COUNT: AtomicU32 = AtomicU32::new(0);
 
-/// WndProc에서는 Shell 호출이나 창 이동을 직접 실행하지 않고 작업만 예약한다.
-/// 여러 Windows 메시지가 연속으로 들어오면 하나의 작업으로 합쳐 처리한다.
-fn queue_appbar_work(
-    hwnd: HWND,
-    reposition: bool,
-    notify_activate: bool,
-    notify_position: bool,
-) {
-    if reposition {
-        REPOSITION_REQUESTED.store(true, Ordering::SeqCst);
-    }
+#[derive(Clone, Copy)]
+pub struct DiagnosticCounts {
+    pub callback: u32,
+    pub reposition: u32,
+    pub activate: u32,
+    pub windowpos: u32,
+    pub query: u32,
+    pub setpos: u32,
+}
 
-    if notify_activate {
-        ACTIVATE_NOTIFICATION_REQUESTED.store(true, Ordering::SeqCst);
-    }
-
-    if notify_position {
-        SHELL_NOTIFICATION_REQUESTED.store(true, Ordering::SeqCst);
-    }
-
-    if WORK_SCHEDULED.swap(true, Ordering::SeqCst) {
-        return;
-    }
-
-    let Some(app) = APP_HANDLE.get().cloned() else {
-        WORK_SCHEDULED.store(false, Ordering::SeqCst);
-        return;
-    };
-
-    let hwnd_value = hwnd_to_isize(hwnd);
-    let schedule_result = app.run_on_main_thread(move || {
-        let hwnd = HWND(hwnd_value as *mut std::ffi::c_void);
-
-        if REGISTERED.load(Ordering::SeqCst) && is_appbar_hwnd(hwnd) {
-            if REPOSITION_REQUESTED.swap(false, Ordering::SeqCst) {
-                let width = APPBAR_WIDTH.load(Ordering::SeqCst);
-                let _ = position_appbar(hwnd, width);
-            }
-
-            if ACTIVATE_NOTIFICATION_REQUESTED.swap(false, Ordering::SeqCst) {
-                unsafe {
-                    let mut data = appbar_data(hwnd);
-                    SHAppBarMessage(ABM_ACTIVATE, &mut data);
-                }
-            }
-
-            if SHELL_NOTIFICATION_REQUESTED.swap(false, Ordering::SeqCst) {
-                unsafe {
-                    let mut data = appbar_data(hwnd);
-                    SHAppBarMessage(ABM_WINDOWPOSCHANGED, &mut data);
-                }
-            }
-        } else {
-            REPOSITION_REQUESTED.store(false, Ordering::SeqCst);
-            ACTIVATE_NOTIFICATION_REQUESTED.store(false, Ordering::SeqCst);
-            SHELL_NOTIFICATION_REQUESTED.store(false, Ordering::SeqCst);
-        }
-
-        WORK_SCHEDULED.store(false, Ordering::SeqCst);
-
-        // position_appbar의 MoveWindow 중 새 요청이 들어온 경우 다음 tick에서 처리한다.
-        if REPOSITION_REQUESTED.load(Ordering::SeqCst)
-            || ACTIVATE_NOTIFICATION_REQUESTED.load(Ordering::SeqCst)
-            || SHELL_NOTIFICATION_REQUESTED.load(Ordering::SeqCst)
-        {
-            queue_appbar_work(hwnd, false, false, false);
-        }
-    });
-
-    if schedule_result.is_err() {
-        WORK_SCHEDULED.store(false, Ordering::SeqCst);
+pub fn diagnostic_counts() -> DiagnosticCounts {
+    DiagnosticCounts {
+        callback: CALLBACK_COUNT.load(Ordering::Relaxed),
+        reposition: REPOSITION_COUNT.load(Ordering::Relaxed),
+        activate: ACTIVATE_COUNT.load(Ordering::Relaxed),
+        windowpos: WINDOWPOS_COUNT.load(Ordering::Relaxed),
+        query: QUERY_COUNT.load(Ordering::Relaxed),
+        setpos: SETPOS_COUNT.load(Ordering::Relaxed),
     }
 }
 
-/// Tauri 창에서 Windows HWND를 얻는다.
-fn get_hwnd(window: &WebviewWindow) -> Result<HWND, String> {
-    let handle = window
-        .window_handle()
-        .map_err(|error| format!("윈도우 핸들을 얻지 못했습니다: {error}"))?;
-
-    match handle.as_raw() {
-        RawWindowHandle::Win32(handle) => {
-            Ok(HWND(handle.hwnd.get() as *mut std::ffi::c_void))
-        }
-
-        _ => Err("Windows HWND가 아닙니다.".to_string()),
-    }
-}
-
-/// 창은 화면에 표시하되 작업표시줄과 Alt+Tab에서는 숨긴다.
-fn apply_tool_window_style(hwnd: HWND) -> Result<(), String> {
-    unsafe {
-        let current_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-
-        let new_style =
-            (current_style | WS_EX_TOOLWINDOW.0 as isize)
-                & !(WS_EX_APPWINDOW.0 as isize);
-
-        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new_style);
-
-        /*
-         * 확장 스타일 변경 사항을 Windows Shell에 즉시 반영한다.
-         * 위치와 크기는 변경하지 않는다.
-         */
-        SetWindowPos(
-            hwnd,
-            None,
-            0,
-            0,
-            0,
-            0,
-            SWP_NOMOVE
-                | SWP_NOSIZE
-                | SWP_NOZORDER
-                | SWP_FRAMECHANGED,
-        )
-        .map_err(|error| {
-            format!("작업표시줄/Alt+Tab 숨김 스타일 적용 실패: {error}")
-        })?;
-    }
-
-    Ok(())
-}
-
-/// HWND를 Atomic에 저장할 수 있는 정수형으로 변환한다.
-fn hwnd_to_isize(hwnd: HWND) -> isize {
+fn hwnd_value(hwnd: HWND) -> isize {
     hwnd.0 as isize
 }
-
-/// 현재 AppBar로 등록된 HWND인지 확인한다.
-fn is_appbar_hwnd(hwnd: HWND) -> bool {
-    APPBAR_HWND.load(Ordering::SeqCst) == hwnd_to_isize(hwnd)
+fn owns(hwnd: HWND) -> bool {
+    APPBAR_HWND.load(Ordering::SeqCst) == hwnd_value(hwnd)
 }
 
-/// APPBARDATA 기본 구조체를 만든다.
-fn appbar_data(hwnd: HWND) -> APPBARDATA {
+fn hwnd(window: &WebviewWindow) -> Result<HWND, String> {
+    let handle = window
+        .window_handle()
+        .map_err(|e| format!("윈도우 핸들을 얻지 못했습니다: {e}"))?;
+    match handle.as_raw() {
+        RawWindowHandle::Win32(handle) => Ok(HWND(handle.hwnd.get() as *mut std::ffi::c_void)),
+        _ => Err("Windows HWND가 아닙니다.".into()),
+    }
+}
+
+fn data(hwnd: HWND) -> APPBARDATA {
     APPBARDATA {
         cbSize: size_of::<APPBARDATA>() as u32,
         hWnd: hwnd,
@@ -206,35 +93,56 @@ fn appbar_data(hwnd: HWND) -> APPBARDATA {
     }
 }
 
-/// 창이 위치한 모니터의 전체 영역을 얻는다.
-///
-/// 작업표시줄과 다른 AppBar를 피하는 처리는
-/// ABM_QUERYPOS가 담당하므로 rcMonitor를 사용한다.
 fn monitor_rect(hwnd: HWND) -> Result<RECT, String> {
     unsafe {
         let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-
         let mut info = MONITORINFO {
             cbSize: size_of::<MONITORINFO>() as u32,
             ..Default::default()
         };
-
         if !GetMonitorInfoW(monitor, &mut info).as_bool() {
-            return Err("모니터 정보를 얻지 못했습니다.".to_string());
+            return Err("모니터 정보를 얻지 못했습니다.".into());
         }
-
         Ok(info.rcMonitor)
     }
 }
 
-/// Windows Shell과 위치를 협상하고 실제 창을 이동한다.
-///
-/// ABN_POSCHANGED를 받을 때마다 다시 호출된다.
-fn position_appbar(hwnd: HWND, width: i32) -> Result<(), String> {
-    let monitor = monitor_rect(hwnd)?;
+fn window_dpi(hwnd: HWND) -> u32 {
+    let dpi = unsafe { GetDpiForWindow(hwnd) };
+    if dpi == 0 {
+        DEFAULT_DPI
+    } else {
+        dpi
+    }
+}
 
-    unsafe {
-        let mut data = APPBARDATA {
+fn physical_width(dpi: u32) -> i32 {
+    ((i64::from(LOGICAL_WIDTH) * i64::from(dpi) + i64::from(DEFAULT_DPI / 2))
+        / i64::from(DEFAULT_DPI)) as i32
+}
+
+fn rect_text(r: RECT) -> String {
+    format!(
+        "({}, {})-({}, {}) [{}x{}]",
+        r.left,
+        r.top,
+        r.right,
+        r.bottom,
+        r.right - r.left,
+        r.bottom - r.top
+    )
+}
+
+fn negotiate(hwnd: HWND) -> Result<(), String> {
+    if !REGISTERED.load(Ordering::SeqCst) || !owns(hwnd) || POSITIONING.swap(true, Ordering::SeqCst)
+    {
+        return Ok(());
+    }
+    let result = (|| unsafe {
+        let monitor = monitor_rect(hwnd)?;
+        let dpi = window_dpi(hwnd);
+        let width = physical_width(dpi);
+        let mut bar = APPBARDATA {
             cbSize: size_of::<APPBARDATA>() as u32,
             hWnd: hwnd,
             uEdge: ABE_RIGHT,
@@ -246,327 +154,256 @@ fn position_appbar(hwnd: HWND, width: i32) -> Result<(), String> {
             },
             ..Default::default()
         };
-
-        /*
-         * Windows가 작업표시줄 및 다른 AppBar의 위치를 고려해
-         * 사용 가능한 영역으로 data.rc를 수정한다.
-         */
-        SHAppBarMessage(ABM_QUERYPOS, &mut data);
-
-        /*
-         * 오른쪽 AppBar의 원하는 폭만 다시 적용한다.
-         *
-         * top, right, bottom은 Windows가 조정한 값을 유지해야 한다.
-         * 예를 들어 작업표시줄이 아래에 있으면 bottom이 위로 올라간다.
-         */
-        data.rc.left = data.rc.right - width;
-
-        let result = SHAppBarMessage(ABM_SETPOS, &mut data);
-
-        if result == 0 {
-            return Err("Windows AppBar 위치 예약에 실패했습니다.".to_string());
+        QUERY_COUNT.fetch_add(1, Ordering::Relaxed);
+        SHAppBarMessage(ABM_QUERYPOS, &mut bar);
+        let queried = bar.rc;
+        bar.rc.left = bar.rc.right - width;
+        SETPOS_COUNT.fetch_add(1, Ordering::Relaxed);
+        if SHAppBarMessage(ABM_SETPOS, &mut bar) == 0 {
+            return Err("Windows AppBar 위치 예약에 실패했습니다.".into());
         }
-
-        let actual_width = data.rc.right - data.rc.left;
-        let actual_height = data.rc.bottom - data.rc.top;
-
-        if actual_width <= 0 || actual_height <= 0 {
-            return Err(format!(
-                "Windows가 잘못된 AppBar 영역을 반환했습니다: \
-                 left={}, top={}, right={}, bottom={}",
-                data.rc.left, data.rc.top, data.rc.right, data.rc.bottom
-            ));
+        let final_rect = bar.rc;
+        let (w, h) = (
+            final_rect.right - final_rect.left,
+            final_rect.bottom - final_rect.top,
+        );
+        if w <= 0 || h <= 0 {
+            return Err(format!("잘못된 AppBar 영역: {}", rect_text(final_rect)));
         }
-
-        /*
-         * Tauri API가 아니라 Win32 MoveWindow를 사용한다.
-         *
-         * Shell이 반환한 좌표를 같은 Win32 메시지 흐름 안에서
-         * 즉시 적용할 수 있다.
-         */
-        MoveWindow(
+        SetWindowPos(
             hwnd,
-            data.rc.left,
-            data.rc.top,
-            actual_width,
-            actual_height,
-            true,
+            None,
+            final_rect.left,
+            final_rect.top,
+            w,
+            h,
+            SWP_NOACTIVATE | SWP_NOZORDER,
         )
-        .map_err(|error| format!("AppBar 창 이동 실패: {error}"))?;
+        .map_err(|e| format!("AppBar 창 이동 실패: {e}"))?;
 
-    }
-
-    Ok(())
+        #[cfg(debug_assertions)]
+        {
+            let mut wr = RECT::default();
+            let mut cr = RECT::default();
+            let _ = GetWindowRect(hwnd, &mut wr);
+            let _ = GetClientRect(hwnd, &mut cr);
+            log::info!("AppBar measurement: monitor={}, dpi={}, scale_factor={:.2}, logical_width={}, physical_width={}, query={}, setpos={}, window={}, client={}x{}", rect_text(monitor), dpi, dpi as f64/DEFAULT_DPI as f64, LOGICAL_WIDTH, width, rect_text(queried), rect_text(final_rect), rect_text(wr), cr.right-cr.left, cr.bottom-cr.top);
+        }
+        Ok(())
+    })();
+    POSITIONING.store(false, Ordering::SeqCst);
+    result
 }
 
-/// 원래 Tauri/Wry WndProc로 메시지를 전달한다.
-unsafe fn call_original_wndproc(
-    hwnd: HWND,
-    message: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    let original = ORIGINAL_WNDPROC.load(Ordering::SeqCst);
+fn queue_reposition(hwnd: HWND) {
+    if REGISTERED.load(Ordering::SeqCst)
+        && owns(hwnd)
+        && !REPOSITION_QUEUED.swap(true, Ordering::SeqCst)
+    {
+        unsafe {
+            let _ = PostMessageW(Some(hwnd), WM_MONA_REPOSITION, WPARAM(0), LPARAM(0));
+        }
+    }
+}
 
+unsafe fn call_original(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    let original = ORIGINAL_WNDPROC.load(Ordering::SeqCst);
     if original == 0 {
         return LRESULT(0);
     }
-
-    /*
-     * SetWindowLongPtrW가 반환한 원래 WndProc 주소를
-     * Windows의 WNDPROC 함수 포인터 형식으로 복원한다.
-     */
-    let original_proc: WNDPROC = transmute(original);
-
-    CallWindowProcW(original_proc, hwnd, message, wparam, lparam)
+    CallWindowProcW(transmute::<isize, WNDPROC>(original), hwnd, msg, wp, lp)
 }
 
-/// MONA-HUB AppBar 전용 Window Procedure.
-///
-/// 처리하지 않는 메시지는 반드시 기존 Tauri WndProc에 전달한다.
-unsafe extern "system" fn appbar_wndproc(
-    hwnd: HWND,
-    message: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    let callback_message = CALLBACK_MESSAGE.load(Ordering::SeqCst);
-
-    /*
-     * Windows Shell이 보내는 AppBar 알림 메시지
-     */
-    if callback_message != 0 && message == callback_message {
-        let notification = wparam.0 as u32;
-
-        if notification == ABN_POSCHANGED {
-            /*
-             * 작업표시줄의 위치, 크기, 표시 상태가 변경되거나
-             * 다른 AppBar가 추가·삭제·변경되면 다시 협상한다.
-             */
-            queue_appbar_work(hwnd, true, false, false);
+unsafe extern "system" fn appbar_wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    let callback = CALLBACK_MESSAGE.load(Ordering::SeqCst);
+    if callback != 0 && msg == callback {
+        let count = CALLBACK_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+        log::info!(
+            "[APPBAR MSG] callback notification={} count={} thread={:?}",
+            wp.0,
+            count,
+            std::thread::current().id()
+        );
+        if wp.0 as u32 == ABN_POSCHANGED {
+            queue_reposition(hwnd);
         }
-
         return LRESULT(0);
     }
-
-    match message {
-        WM_ACTIVATE => {
-            /*
-             * AppBar 활성화 상태를 Shell에 알린다.
-             */
-            if REGISTERED.load(Ordering::SeqCst) && is_appbar_hwnd(hwnd) {
-                queue_appbar_work(hwnd, false, true, false);
+    match msg {
+        WM_MONA_REPOSITION => {
+            let count = REPOSITION_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+            log::info!(
+                "[APPBAR MSG] reposition count={} thread={:?}",
+                count,
+                std::thread::current().id()
+            );
+            REPOSITION_QUEUED.store(false, Ordering::SeqCst);
+            if let Err(e) = negotiate(hwnd) {
+                log::error!("AppBar 재협상 실패: {e}");
             }
+            return LRESULT(0);
         }
-
-        WM_WINDOWPOSCHANGED => {
-            /*
-             * AppBar 창 위치가 변경되었음을 Shell에 알린다.
-             */
-            if REGISTERED.load(Ordering::SeqCst) && is_appbar_hwnd(hwnd) {
-                queue_appbar_work(hwnd, false, false, true);
-            }
+        WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE | WM_DEVICECHANGE => {
+            queue_reposition(hwnd)
         }
-
-        WM_DISPLAYCHANGE | WM_DPICHANGED => {
-            /*
-             * 해상도, 배율 또는 모니터 구성이 바뀌었을 때도
-             * AppBar 영역을 다시 계산한다.
-             */
-            if REGISTERED.load(Ordering::SeqCst) && is_appbar_hwnd(hwnd) {
-                queue_appbar_work(hwnd, true, false, false);
-            }
+        WM_ACTIVATE if REGISTERED.load(Ordering::SeqCst) && owns(hwnd) => {
+            let count = ACTIVATE_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+            log::info!(
+                "[APPBAR MSG] WM_ACTIVATE state={} count={} thread={:?} (ABM_ACTIVATE suppressed)",
+                wp.0 & 0xffff,
+                count,
+                std::thread::current().id()
+            );
         }
-
-        WM_DESTROY => {
-            /*
-             * 비정상적인 종료 경로에서도 예약 영역을 최대한 해제한다.
-             *
-             * 정상 종료 때는 unregister()에서 먼저 해제된다.
-             */
-            if REGISTERED.swap(false, Ordering::SeqCst) && is_appbar_hwnd(hwnd) {
-                let mut data = appbar_data(hwnd);
-                SHAppBarMessage(ABM_REMOVE, &mut data);
-            }
+        WM_WINDOWPOSCHANGED
+            if REGISTERED.load(Ordering::SeqCst)
+                && owns(hwnd)
+                && !POSITIONING.load(Ordering::SeqCst) =>
+        {
+            let count = WINDOWPOS_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+            log::info!(
+                "[APPBAR MSG] WM_WINDOWPOSCHANGED count={} thread={:?}",
+                count,
+                std::thread::current().id()
+            );
+            let mut bar = data(hwnd);
+            SHAppBarMessage(ABM_WINDOWPOSCHANGED, &mut bar);
         }
-
+        WM_DESTROY if REGISTERED.swap(false, Ordering::SeqCst) && owns(hwnd) => {
+            let mut bar = data(hwnd);
+            SHAppBarMessage(ABM_REMOVE, &mut bar);
+            APPBAR_HWND.store(0, Ordering::SeqCst);
+            CALLBACK_MESSAGE.store(0, Ordering::SeqCst);
+        }
         _ => {}
     }
-
-    call_original_wndproc(hwnd, message, wparam, lparam)
+    call_original(hwnd, msg, wp, lp)
 }
 
-/// Tauri 창의 WndProc를 MONA-HUB AppBar WndProc로 교체한다.
 fn install_wndproc(hwnd: HWND) -> Result<(), String> {
     if ORIGINAL_WNDPROC.load(Ordering::SeqCst) != 0 {
         return Ok(());
     }
-
     unsafe {
-        let previous = SetWindowLongPtrW(
-            hwnd,
-            GWLP_WNDPROC,
-            appbar_wndproc as *const () as isize,
-        );
-
-        if previous == 0 {
-            return Err("AppBar Window Procedure 설치에 실패했습니다.".to_string());
+        let old = SetWindowLongPtrW(hwnd, GWLP_WNDPROC, appbar_wndproc as *const () as isize);
+        if old == 0 {
+            return Err("AppBar Window Procedure 설치에 실패했습니다.".into());
         }
-
-        ORIGINAL_WNDPROC.store(previous, Ordering::SeqCst);
+        ORIGINAL_WNDPROC.store(old, Ordering::SeqCst);
     }
-
     Ok(())
 }
 
-/// 기존 Tauri WndProc를 복원한다.
 fn restore_wndproc(hwnd: HWND) -> Result<(), String> {
-    let previous = ORIGINAL_WNDPROC.swap(0, Ordering::SeqCst);
-
-    if previous == 0 {
+    let old = ORIGINAL_WNDPROC.swap(0, Ordering::SeqCst);
+    if old == 0 {
         return Ok(());
     }
-
     unsafe {
-        let result = SetWindowLongPtrW(hwnd, GWLP_WNDPROC, previous);
-
-        if result == 0 {
-            /*
-             * 복원 실패 시 원래 주소를 다시 저장해 둔다.
-             * 잘못된 상태에서 함수 포인터를 잃지 않기 위함이다.
-             */
-            ORIGINAL_WNDPROC.store(previous, Ordering::SeqCst);
-
-            return Err("기존 Window Procedure 복원에 실패했습니다.".to_string());
+        if SetWindowLongPtrW(hwnd, GWLP_WNDPROC, old) == 0 {
+            ORIGINAL_WNDPROC.store(old, Ordering::SeqCst);
+            return Err("기존 Window Procedure 복원에 실패했습니다.".into());
         }
     }
-
     Ok(())
 }
 
-/// 오른쪽 AppBar를 등록한다.
-pub fn register(window: &WebviewWindow, width: i32) -> Result<(), String> {
-    if !(MIN_WIDTH..=MAX_WIDTH).contains(&width) {
-        return Err(format!(
-            "AppBar 폭은 {MIN_WIDTH}~{MAX_WIDTH}px 범위여야 합니다."
-        ));
-    }
-
-    let hwnd = get_hwnd(window)?;
-    let _ = APP_HANDLE.set(window.app_handle().clone());
-
-    apply_tool_window_style(hwnd)?;
-
-    /*
-     * 이미 등록된 같은 창이면 폭만 변경한다.
-     */
-    if REGISTERED.load(Ordering::SeqCst) && is_appbar_hwnd(hwnd) {
-        APPBAR_WIDTH.store(width, Ordering::SeqCst);
-        return position_appbar(hwnd, width);
-    }
-
-    /*
-     * 혹시 다른 등록 정보가 남아 있으면 먼저 정리한다.
-     */
-    if REGISTERED.load(Ordering::SeqCst) {
-        return Err("다른 AppBar 창이 이미 등록되어 있습니다.".to_string());
-    }
-
-    let callback_message = unsafe {
-        RegisterWindowMessageW(w!("MONA_HUB_APPBAR_CALLBACK"))
-    };
-
-    if callback_message == 0 {
-        return Err("AppBar 콜백 메시지 등록에 실패했습니다.".to_string());
-    }
-
-    CALLBACK_MESSAGE.store(callback_message, Ordering::SeqCst);
-    APPBAR_HWND.store(hwnd_to_isize(hwnd), Ordering::SeqCst);
-    APPBAR_WIDTH.store(width, Ordering::SeqCst);
-
-    /*
-     * ABM_NEW 전에 WndProc를 설치해야
-     * 등록 직후 들어오는 Shell 메시지도 받을 수 있다.
-     */
-    install_wndproc(hwnd)?;
-
+fn apply_tool_style(hwnd: HWND) -> Result<(), String> {
     unsafe {
-        let mut data = APPBARDATA {
+        let style = (GetWindowLongPtrW(hwnd, GWL_EXSTYLE) | WS_EX_TOOLWINDOW.0 as isize)
+            & !(WS_EX_APPWINDOW.0 as isize);
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style);
+        SetWindowPos(
+            hwnd,
+            None,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        )
+        .map_err(|e| format!("Tool window 스타일 적용 실패: {e}"))?;
+    }
+    Ok(())
+}
+
+pub fn register(window: &WebviewWindow) -> Result<(), String> {
+    let hwnd = hwnd(window)?;
+    apply_tool_style(hwnd)?;
+    if REGISTERED.load(Ordering::SeqCst) {
+        return if owns(hwnd) {
+            negotiate(hwnd)
+        } else {
+            Err("다른 AppBar 창이 이미 등록되어 있습니다.".into())
+        };
+    }
+    let callback = unsafe { RegisterWindowMessageW(w!("MONA_HUB_APPBAR_CALLBACK")) };
+    if callback == 0 {
+        return Err("AppBar 콜백 메시지 등록에 실패했습니다.".into());
+    }
+    APPBAR_HWND.store(hwnd_value(hwnd), Ordering::SeqCst);
+    CALLBACK_MESSAGE.store(callback, Ordering::SeqCst);
+    if let Err(e) = install_wndproc(hwnd) {
+        APPBAR_HWND.store(0, Ordering::SeqCst);
+        CALLBACK_MESSAGE.store(0, Ordering::SeqCst);
+        return Err(e);
+    }
+    unsafe {
+        let mut bar = APPBARDATA {
             cbSize: size_of::<APPBARDATA>() as u32,
             hWnd: hwnd,
-            uCallbackMessage: callback_message,
+            uCallbackMessage: callback,
             ..Default::default()
         };
-
-        let result = SHAppBarMessage(ABM_NEW, &mut data);
-
-        if result == 0 {
+        if SHAppBarMessage(ABM_NEW, &mut bar) == 0 {
             let _ = restore_wndproc(hwnd);
-
-            CALLBACK_MESSAGE.store(0, Ordering::SeqCst);
             APPBAR_HWND.store(0, Ordering::SeqCst);
-
-            return Err("Windows Shell에 AppBar 등록을 실패했습니다.".to_string());
+            CALLBACK_MESSAGE.store(0, Ordering::SeqCst);
+            return Err("Windows Shell에 AppBar 등록을 실패했습니다.".into());
         }
     }
-
     REGISTERED.store(true, Ordering::SeqCst);
-
-    if let Err(error) = position_appbar(hwnd, width) {
+    if let Err(e) = negotiate(hwnd) {
         let _ = unregister(window);
-        return Err(error);
+        return Err(e);
     }
-
+    #[cfg(debug_assertions)]
+    if let (Ok(inner), Ok(outer), Ok(scale)) = (
+        window.inner_size(),
+        window.outer_size(),
+        window.scale_factor(),
+    ) {
+        log::info!("Tauri measurement: scale_factor={scale:.2}, inner_physical={}x{}, inner_logical={:.2}x{:.2}, outer_physical={}x{}", inner.width,inner.height,inner.width as f64/scale,inner.height as f64/scale,outer.width,outer.height);
+    }
     Ok(())
 }
 
-/// 최초 실행은 36px(Small), 이후 재등록은 현재 선택 폭을 유지한다.
-pub fn register_collapsed(window: &WebviewWindow) -> Result<(), String> {
-    register(window, APPBAR_WIDTH.load(Ordering::SeqCst))
-}
-
-/// AppBar 폭 변경
-///
-/// 기존처럼 unregister/register를 반복하지 않고
-/// 등록 상태를 유지한 채 위치만 다시 협상한다.
-pub fn resize(window: &WebviewWindow, width: i32) -> Result<(), String> {
-    if !(MIN_WIDTH..=MAX_WIDTH).contains(&width) {
-        return Err(format!(
-            "AppBar 폭은 {MIN_WIDTH}~{MAX_WIDTH}px 범위여야 합니다."
-        ));
-    }
-
-    let hwnd = get_hwnd(window)?;
-
-    if !REGISTERED.load(Ordering::SeqCst) || !is_appbar_hwnd(hwnd) {
-        return register(window, width);
-    }
-
-    APPBAR_WIDTH.store(width, Ordering::SeqCst);
-    position_appbar(hwnd, width)
-}
-
-/// Windows Shell에서 AppBar 등록을 해제하고 기존 WndProc를 복원한다.
 pub fn unregister(window: &WebviewWindow) -> Result<(), String> {
-    let hwnd = get_hwnd(window)?;
-
-    if REGISTERED.swap(false, Ordering::SeqCst) {
+    let hwnd = hwnd(window)?;
+    if REGISTERED.swap(false, Ordering::SeqCst) && owns(hwnd) {
         unsafe {
-            let mut data = appbar_data(hwnd);
-            SHAppBarMessage(ABM_REMOVE, &mut data);
+            let mut bar = data(hwnd);
+            SHAppBarMessage(ABM_REMOVE, &mut bar);
         }
     }
-
-    /*
-     * 서브클래싱은 설치의 역순으로 제거해야 한다.
-     */
-    let restore_result = restore_wndproc(hwnd);
-
+    let result = restore_wndproc(hwnd);
     APPBAR_HWND.store(0, Ordering::SeqCst);
     CALLBACK_MESSAGE.store(0, Ordering::SeqCst);
-    REPOSITION_REQUESTED.store(false, Ordering::SeqCst);
-    ACTIVATE_NOTIFICATION_REQUESTED.store(false, Ordering::SeqCst);
-    SHELL_NOTIFICATION_REQUESTED.store(false, Ordering::SeqCst);
+    REPOSITION_QUEUED.store(false, Ordering::SeqCst);
+    POSITIONING.store(false, Ordering::SeqCst);
+    result
+}
 
-    restore_result
+#[cfg(test)]
+mod tests {
+    use super::physical_width;
+
+    #[test]
+    fn converts_small_width_at_supported_scales() {
+        assert_eq!(physical_width(96), 36);
+        assert_eq!(physical_width(120), 45);
+        assert_eq!(physical_width(144), 54);
+        assert_eq!(physical_width(168), 63);
+        assert_eq!(physical_width(192), 72);
+    }
 }

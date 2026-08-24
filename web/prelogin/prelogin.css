@@ -1,0 +1,105 @@
+:root {
+  font-family: "Segoe UI", Arial, sans-serif;
+  color: #f5f7f6;
+  background: #171a20;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  min-width: 36px;
+  overflow: hidden;
+  background: #171a20;
+  user-select: none;
+}
+
+.prelogin-appbar {
+  display: grid;
+  grid-template-rows: 38px minmax(0, 1fr) 54px 38px;
+  width: 100%;
+  height: 100%;
+  border-left: 1px solid #30353d;
+  background:
+    radial-gradient(circle at 50% -8%, rgb(82 194 138 / 13%), transparent 25%),
+    linear-gradient(180deg, rgb(31 35 42 / 96%), rgb(23 26 32 / 98%));
+}
+
+.brand-area,
+.profile-area,
+.status-area {
+  display: grid;
+  width: 100%;
+  place-items: center;
+}
+
+.brand-area {
+  align-items: start;
+  padding-top: 5px;
+  border-bottom: 1px solid #30353d;
+}
+
+.hub-icon {
+  display: block;
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  image-rendering: auto;
+}
+
+.profile-area {
+  align-items: start;
+  padding-top: 4px;
+}
+
+.profile-avatar {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #828a92;
+  border-radius: 50%;
+  background: linear-gradient(145deg, rgb(49 55 63 / 62%), rgb(20 24 29 / 76%));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 5%);
+  color: inherit;
+  cursor: pointer;
+}
+
+.profile-avatar:hover {
+  border-color: #a2abb3;
+  background: linear-gradient(145deg, rgb(59 66 75 / 72%), rgb(25 29 35 / 86%));
+}
+
+.profile-avatar:focus-visible {
+  outline: 2px solid #63d69d;
+  outline-offset: 2px;
+}
+
+.profile-icon {
+  display: block;
+  width: 20px;
+  height: 20px;
+  overflow: visible;
+}
+
+.status-area {
+  border-top: 1px solid #30353d;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #52c28a;
+  box-shadow: 0 0 8px rgb(82 194 138 / 65%);
+}
