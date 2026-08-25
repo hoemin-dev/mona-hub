@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-toggle-profile-popup"
+description = "Enables the toggle_profile_popup command without any pre-configured scope."
+commands.allow = ["toggle_profile_popup"]
+
+[[permission]]
+identifier = "deny-toggle-profile-popup"
+description = "Denies the toggle_profile_popup command without any pre-configured scope."
+commands.deny = ["toggle_profile_popup"]

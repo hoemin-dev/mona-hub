@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-begin-access-logout"
+description = "Enables the begin_access_logout command without any pre-configured scope."
+commands.allow = ["begin_access_logout"]
+
+[[permission]]
+identifier = "deny-begin-access-logout"
+description = "Denies the begin_access_logout command without any pre-configured scope."
+commands.deny = ["begin_access_logout"]

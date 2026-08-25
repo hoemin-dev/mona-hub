@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-confirm-access-logout"
+description = "Enables the confirm_access_logout command without any pre-configured scope."
+commands.allow = ["confirm_access_logout"]
+
+[[permission]]
+identifier = "deny-confirm-access-logout"
+description = "Denies the confirm_access_logout command without any pre-configured scope."
+commands.deny = ["confirm_access_logout"]

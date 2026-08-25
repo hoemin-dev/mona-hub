@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-log-login-viewport"
+description = "Enables the log_login_viewport command without any pre-configured scope."
+commands.allow = ["log_login_viewport"]
+
+[[permission]]
+identifier = "deny-log-login-viewport"
+description = "Denies the log_login_viewport command without any pre-configured scope."
+commands.deny = ["log_login_viewport"]
