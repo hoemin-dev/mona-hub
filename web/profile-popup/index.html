@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>프로필 메뉴</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <section id="menuView" class="panel menu" role="menu" aria-label="프로필 메뉴">
+      <button type="button" role="menuitem" data-placeholder>마이프로필</button>
+      <button type="button" role="menuitem" data-placeholder>설정</button>
+      <button id="logoutItem" type="button" role="menuitem">로그아웃</button>
+    </section>
+    <section id="confirmView" class="panel confirm" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" hidden>
+      <p id="confirmTitle">MONA Hub에서 로그아웃하시겠습니까?</p>
+      <div class="actions">
+        <button id="cancelButton" type="button">취소</button>
+        <button id="confirmButton" class="danger" type="button">로그아웃</button>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

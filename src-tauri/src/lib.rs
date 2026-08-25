@@ -29,19 +29,29 @@ use windows::Win32::{
 mod appbar;
 
 const LOGIN_WINDOW_LABEL: &str = "login";
+const PROFILE_POPUP_LABEL: &str = "profile-popup";
 const ACCESS_APP_URL: &str = "https://mona-hub.pages.dev/app/";
+const PRELOGIN_URL: &str = "https://mona-hub.pages.dev/prelogin/";
 const AUTH_WINDOW_MARGIN_LOGICAL: f64 = 12.0;
 const DEFAULT_DPI: u32 = 96;
 const AUTH_IDLE: u8 = 0;
 const AUTH_WAITING_FOR_LOGIN: u8 = 1;
 const AUTH_WAITING_FOR_MAIN: u8 = 2;
 const AUTHENTICATED: u8 = 3;
+const AUTH_LOGOUT_NAVIGATING: u8 = 4;
+const AUTH_VERIFYING_LOGOUT: u8 = 5;
 static LOGIN_REQUEST_ID: AtomicU64 = AtomicU64::new(0);
 static AUTH_FLOW_STATE: AtomicU8 = AtomicU8::new(AUTH_IDLE);
 static LOGIN_PAGE_LOAD: OnceLock<Mutex<Option<(u64, Instant)>>> = OnceLock::new();
+static LOGIN_START_URL: OnceLock<Mutex<Option<Url>>> = OnceLock::new();
+static PROFILE_POPUP_BLURRED_AT: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
 
 fn login_page_load() -> &'static Mutex<Option<(u64, Instant)>> {
     LOGIN_PAGE_LOAD.get_or_init(|| Mutex::new(None))
+}
+
+fn login_start_url() -> &'static Mutex<Option<Url>> {
+    LOGIN_START_URL.get_or_init(|| Mutex::new(None))
 }
 
 #[tauri::command]
@@ -340,7 +350,43 @@ fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadP
         PageLoadEvent::Started => "started",
         PageLoadEvent::Finished => "finished",
     };
+    if label == PROFILE_POPUP_LABEL {
+        log::info!("[profile-popup] page load {event}: {url}");
+    }
     log_auth_navigation(label, event, url, state);
+
+    if label == "main"
+        && state == AUTH_VERIFYING_LOGOUT
+        && payload.event() == PageLoadEvent::Started
+    {
+        if !is_access_app_url(url)
+            && matches!(
+                auth_navigation_stage(url),
+                "cloudflare-access" | "microsoft-authorize" | "microsoft-authentication"
+            )
+        {
+            log::info!("[ACCESS LOGOUT] protected /app/ requires authentication; logout verified");
+            AUTH_FLOW_STATE.store(AUTH_IDLE, Ordering::Release);
+            if let Some(popup) = window.app_handle().get_webview_window(PROFILE_POPUP_LABEL) {
+                let _ = popup.hide();
+            }
+            if let Some(login) = window.app_handle().get_webview_window(LOGIN_WINDOW_LABEL) {
+                if let Ok(start) = login_start_url().lock() {
+                    if let Some(url) = start.clone() {
+                        let _ = login.navigate(url);
+                    }
+                }
+                let _ = login.hide();
+            }
+            let prelogin_url = PRELOGIN_URL.parse().expect("invalid prelogin URL");
+            if let Some(main) = window.app_handle().get_webview_window("main") {
+                if let Err(error) = main.navigate(prelogin_url) {
+                    log::error!("[ACCESS LOGOUT] prelogin navigation failed: {error}");
+                }
+            }
+            return;
+        }
+    }
 
     // Resize on navigation start so the external identity UI receives the larger
     // viewport before it completes its first render. No script is injected there.
@@ -349,6 +395,25 @@ fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadP
     }
 
     if payload.event() != PageLoadEvent::Finished {
+        return;
+    }
+
+    if label == "main" && state == AUTH_LOGOUT_NAVIGATING {
+        AUTH_FLOW_STATE.store(AUTH_VERIFYING_LOGOUT, Ordering::Release);
+        log::info!("[ACCESS LOGOUT] logout navigation completed; verifying protected /app/");
+        if let Some(main) = window.app_handle().get_webview_window("main") {
+            let app_url = ACCESS_APP_URL.parse().expect("invalid Access app URL");
+            if let Err(error) = main.navigate(app_url) {
+                AUTH_FLOW_STATE.store(AUTHENTICATED, Ordering::Release);
+                log::error!("[ACCESS LOGOUT] verification navigation failed: {error}");
+            }
+        }
+        return;
+    }
+
+    if label == "main" && state == AUTH_VERIFYING_LOGOUT && is_access_app_url(url) {
+        AUTH_FLOW_STATE.store(AUTHENTICATED, Ordering::Release);
+        log::error!("[ACCESS LOGOUT] verification failed: protected /app/ still loaded without Access authentication");
         return;
     }
 
@@ -390,6 +455,167 @@ fn log_login_diagnostic(message: String) {
 #[tauri::command]
 fn show_login_window(app: AppHandle) -> Result<(), String> {
     show_or_create_login_window(&app, "prelogin command").map_err(|error| error.to_string())
+}
+
+fn position_profile_popup(app: &AppHandle, popup: &WebviewWindow) -> tauri::Result<()> {
+    let Some(main) = app.get_webview_window("main") else {
+        return Ok(());
+    };
+    let main_position = main.outer_position()?;
+    let main_size = main.outer_size()?;
+    let popup_size = popup.outer_size()?;
+    let footer = (38.0 * main.scale_factor()?).round() as i32;
+    let desired_x = main_position.x - popup_size.width as i32;
+    let desired_y = main_position.y + main_size.height as i32 - popup_size.height as i32 - footer;
+    let monitor = main.current_monitor()?.or(main.primary_monitor()?);
+    let (x, y) = if let Some(monitor) = monitor {
+        let work_position = monitor.position();
+        let work_size = monitor.size();
+        let max_x = work_position.x + work_size.width as i32 - popup_size.width as i32;
+        let max_y = work_position.y + work_size.height as i32 - popup_size.height as i32;
+        (
+            desired_x.clamp(work_position.x, max_x.max(work_position.x)),
+            desired_y.clamp(work_position.y, max_y.max(work_position.y)),
+        )
+    } else {
+        (desired_x, desired_y.max(main_position.y))
+    };
+    log::info!(
+        "[profile-popup] position = ({x}, {y}), main_rect=({}, {}) {}x{}, popup_size={}x{}, scale_factor={:.2}",
+        main_position.x,
+        main_position.y,
+        main_size.width,
+        main_size.height,
+        popup_size.width,
+        popup_size.height,
+        main.scale_factor()?
+    );
+    popup.set_position(PhysicalPosition::new(x, y))
+}
+
+fn profile_popup(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+    if let Some(popup) = app.get_webview_window(PROFILE_POPUP_LABEL) {
+        log::info!("[profile-popup] existing window = true");
+        return Ok(popup);
+    }
+    log::info!("[profile-popup] existing window = false; creating hidden window");
+    let popup = WebviewWindowBuilder::new(
+        app,
+        PROFILE_POPUP_LABEL,
+        WebviewUrl::App("profile-popup/index.html".into()),
+    )
+    .title("MONA Hub 프로필")
+    .inner_size(176.0, 126.0)
+    .resizable(false)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .shadow(false)
+    .visible(false)
+    .build()?;
+    log::info!(
+        "[profile-popup] created: visible={:?}, outer_size={:?}",
+        popup.is_visible(),
+        popup.outer_size()
+    );
+    Ok(popup)
+}
+
+#[tauri::command]
+fn toggle_profile_popup(window: WebviewWindow) -> Result<bool, String> {
+    log::info!(
+        "[profile-popup] rust command entered: source={}",
+        window.label()
+    );
+    if window.label() != "main" {
+        return Err("잘못된 창에서 프로필 메뉴를 요청했습니다.".into());
+    }
+    let popup = profile_popup(window.app_handle()).map_err(|e| e.to_string())?;
+    if let Ok(mut blurred_at) = PROFILE_POPUP_BLURRED_AT
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+    {
+        if blurred_at
+            .take()
+            .is_some_and(|at| at.elapsed().as_millis() < 350)
+        {
+            let result = popup.hide();
+            log::info!("[profile-popup] recent blur guard hide result = {result:?}");
+            return Ok(false);
+        }
+    }
+    let visible = popup.is_visible().map_err(|e| e.to_string())?;
+    log::info!("[profile-popup] is_visible before toggle = {visible}");
+    if visible {
+        let result = popup.hide();
+        log::info!("[profile-popup] hide result = {result:?}");
+        result.map_err(|e| e.to_string())?;
+        return Ok(false);
+    }
+    position_profile_popup(window.app_handle(), &popup).map_err(|e| e.to_string())?;
+    let unminimize_result = popup.unminimize();
+    log::info!("[profile-popup] unminimize result = {unminimize_result:?}");
+    unminimize_result.map_err(|e| e.to_string())?;
+    let show_result = popup.show();
+    log::info!("[profile-popup] show result = {show_result:?}");
+    show_result.map_err(|e| e.to_string())?;
+    let focus_result = popup.set_focus();
+    log::info!("[profile-popup] focus result = {focus_result:?}");
+    focus_result.map_err(|e| e.to_string())?;
+    log::info!(
+        "[profile-popup] after show: visible={:?}, position={:?}, outer_size={:?}, minimized={:?}",
+        popup.is_visible(),
+        popup.outer_position(),
+        popup.outer_size(),
+        popup.is_minimized()
+    );
+    Ok(true)
+}
+
+#[tauri::command]
+fn hide_profile_popup(app: AppHandle) -> Result<(), String> {
+    if let Some(popup) = app.get_webview_window(PROFILE_POPUP_LABEL) {
+        popup.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn confirm_access_logout(window: WebviewWindow) -> Result<(), String> {
+    if window.label() != PROFILE_POPUP_LABEL {
+        return Err("잘못된 창에서 로그아웃을 확인했습니다.".into());
+    }
+    let Some(main) = window.app_handle().get_webview_window("main") else {
+        return Err("main 창을 찾을 수 없습니다.".into());
+    };
+    window.hide().map_err(|e| e.to_string())?;
+    main.eval("window.dispatchEvent(new CustomEvent('mona:logout-confirmed'))")
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn begin_access_logout(window: WebviewWindow, logout_url: String) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("잘못된 창에서 로그아웃을 요청했습니다.".into());
+    }
+    let url: Url = logout_url
+        .parse()
+        .map_err(|_| "잘못된 logout URL입니다.".to_string())?;
+    if url.scheme() != "https"
+        || url.host_str() != Some("mona-hub.pages.dev")
+        || url.path() != "/cdn-cgi/access/logout"
+    {
+        return Err("현재 Access origin의 logout endpoint가 아닙니다.".into());
+    }
+    AUTH_FLOW_STATE.store(AUTH_LOGOUT_NAVIGATING, Ordering::Release);
+    log::info!(
+        "[ACCESS LOGOUT] navigating current main WebView to official Access logout endpoint"
+    );
+    window.navigate(url).map_err(|error| {
+        AUTH_FLOW_STATE.store(AUTHENTICATED, Ordering::Release);
+        log::error!("[ACCESS LOGOUT] navigation failed: {error}");
+        error.to_string()
+    })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -463,6 +689,13 @@ fn show_or_create_login_window(app: &AppHandle, origin: &str) -> tauri::Result<(
     }
 
     if let Some(login_window) = existing_window {
+        if let Ok(start) = login_start_url().lock() {
+            if let Some(url) = start.clone() {
+                login_window.navigate(url)?;
+                AUTH_FLOW_STATE.store(AUTH_IDLE, Ordering::Release);
+                log::info!("[LOGIN] existing window reset to MONA Hub login start page");
+            }
+        }
         if operation == LoginDiagnosticOperation::Show {
             let started = Instant::now();
             login_window.show()?;
@@ -571,6 +804,9 @@ fn show_or_create_login_window(app: &AppHandle, origin: &str) -> tauri::Result<(
     .skip_taskbar(false)
     .visible(false)
     .build()?;
+    if let Ok(mut start) = login_start_url().lock() {
+        *start = login_window.url().ok();
+    }
     log::info!(
         "[LOGIN PERF #{request_id}] WebviewWindowBuilder build: {:.1}ms",
         build_started.elapsed().as_secs_f64() * 1000.0
@@ -601,7 +837,11 @@ pub fn run() {
             begin_access_login,
             log_login_viewport,
             log_login_diagnostic,
-            show_login_window
+            show_login_window,
+            toggle_profile_popup,
+            hide_profile_popup,
+            confirm_access_logout,
+            begin_access_logout
         ])
         .on_page_load(handle_page_load)
         .setup(|app| {
@@ -621,6 +861,15 @@ pub fn run() {
             )?;
 
             log::info!("MONA-HUB startup");
+
+            // WebView IPC command 안에서 새 WebView를 동기 생성하면 Windows에서
+            // 생성 완료를 기다리며 교착될 수 있으므로 hidden popup을 setup에서 준비한다.
+            let popup = profile_popup(app.handle())?;
+            log::info!(
+                "[profile-popup] setup ready: visible={:?}, outer_size={:?}",
+                popup.is_visible(),
+                popup.outer_size()
+            );
 
             /*
              * Windows AppBar 등록
@@ -778,6 +1027,22 @@ pub fn run() {
          * 창 닫기 처리
          */
         .on_window_event(|window, event| {
+            if window.label() == PROFILE_POPUP_LABEL {
+                if let WindowEvent::Focused(false) = event {
+                    if !window.is_visible().unwrap_or(false) {
+                        log::info!("[profile-popup] ignored blur while hidden");
+                        return;
+                    }
+                    if let Ok(mut blurred_at) = PROFILE_POPUP_BLURRED_AT
+                        .get_or_init(|| Mutex::new(None))
+                        .lock()
+                    {
+                        *blurred_at = Some(Instant::now());
+                    }
+                    let result = window.hide();
+                    log::info!("[profile-popup] focus lost; hide result = {result:?}");
+                }
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == LOGIN_WINDOW_LABEL {
                     api.prevent_close();

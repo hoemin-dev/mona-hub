@@ -4,11 +4,13 @@ export class AuthController extends EventTarget {
   #authenticated = false;
   #identity = null;
   #checking = null;
+  #logoutNavigator;
 
-  constructor(provider, { preloginUrl }) {
+  constructor(provider, { preloginUrl, logoutNavigator }) {
     super();
     this.#provider = provider;
     this.#preloginUrl = preloginUrl;
+    this.#logoutNavigator = logoutNavigator;
   }
 
   login() {
@@ -16,9 +18,7 @@ export class AuthController extends EventTarget {
   }
 
   async logout() {
-    await this.#provider.logout();
-    this.#setState(false, null);
-    window.location.replace(this.#preloginUrl);
+    await this.#provider.logout(this.#logoutNavigator);
   }
 
   isAuthenticated() {

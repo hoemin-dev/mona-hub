@@ -9,9 +9,17 @@ export class AccessAuthProvider {
     window.location.assign(this.#config.appUrl);
   }
 
-  async logout() {
-    const logoutUrl = new URL("/cdn-cgi/access/logout", this.#config.appUrl);
-    const response = await fetch(logoutUrl, {
+  logoutUrl() {
+    return new URL("/cdn-cgi/access/logout", this.#config.appUrl);
+  }
+
+  async logout(navigate) {
+    if (typeof navigate === "function") {
+      await navigate(this.logoutUrl());
+      return;
+    }
+
+    const response = await fetch(this.logoutUrl(), {
       credentials: "include",
       cache: "no-store",
       redirect: "follow"

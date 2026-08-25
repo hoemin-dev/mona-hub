@@ -5,6 +5,59 @@ const mockApps = Object.freeze([
 ]);
 
 const appList = document.getElementById("appList");
+const profileButton = document.getElementById("profileButton");
+const invoke = window.__TAURI__?.core?.invoke;
+const authController = new AuthController(
+  new AccessAuthProvider({ appUrl: authConfig.appUrl }),
+  {
+    preloginUrl: authConfig.preloginUrl,
+    logoutNavigator: async logoutUrl => {
+      if (!invoke) throw new Error("Tauri logout bridge is unavailable");
+      await invoke("begin_access_logout", { logoutUrl: logoutUrl.href });
+    }
+  }
+);
+
+async function toggleProfileMenu() {
+  console.info("[profile-popup] app profile clicked");
+  if (!invoke) {
+    console.error("[profile-popup] invoke unavailable", {
+      href: window.location.href,
+      hasTauriGlobal: Boolean(window.__TAURI__)
+    });
+    return;
+  }
+  try {
+    console.info("[profile-popup] invoke requested", {
+      command: "toggle_profile_popup",
+      href: window.location.href
+    });
+    const open = await invoke("toggle_profile_popup");
+    console.info("[profile-popup] invoke completed", { open });
+    profileButton.setAttribute("aria-expanded", String(open));
+  } catch (error) {
+    console.error("[profile-popup] invoke failed", error);
+  }
+}
+
+window.addEventListener("mona:logout-confirmed", async () => {
+  profileButton.setAttribute("aria-expanded", "false");
+  try {
+    await authController.logout();
+  } catch (error) {
+    console.error("Cloudflare Access 로그아웃 시작 실패:", error);
+  }
+});
+
+if (!profileButton) {
+  console.error("[profile-popup] #profileButton not found; listener not registered");
+} else {
+  profileButton.addEventListener("click", toggleProfileMenu);
+  console.info("[profile-popup] click listener registered", {
+    pointerEvents: getComputedStyle(profileButton).pointerEvents,
+    rect: profileButton.getBoundingClientRect().toJSON()
+  });
+}
 
 function selectApp(app, button) {
   appList.querySelectorAll(".app-button").forEach(item => {
@@ -38,3 +91,6 @@ mockApps.forEach(app => {
   button.addEventListener("click", () => selectApp(app, button));
   appList.append(button);
 });
+import { AccessAuthProvider } from "../auth/access-auth-provider.js";
+import { AuthController } from "../auth/auth-controller.js";
+import { authConfig } from "./config/environment.js";
