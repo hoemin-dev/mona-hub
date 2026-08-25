@@ -11,6 +11,8 @@
     ]
   },
   "permissions": [
-    "core:default"
+    "core:default",
+    "allow-toggle-profile-popup",
+    "allow-begin-access-logout"
   ]
 }

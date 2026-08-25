@@ -8,6 +8,7 @@
     "profile-popup"
   ],
   "permissions": [
-    "core:default"
+    "core:default",
+    "default"
   ]
 }
