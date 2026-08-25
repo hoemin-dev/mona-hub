@@ -1,23 +1,43 @@
 use std::{
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU64, AtomicU8, Ordering},
         Mutex, OnceLock,
     },
     time::Instant,
 };
+use tauri::webview::PageLoadEvent;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
-    WindowEvent,
+    AppHandle, Manager, PhysicalPosition, PhysicalSize, Url, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder, WindowEvent,
 };
 use tauri_plugin_log::{Target, TargetKind};
+
+#[cfg(target_os = "windows")]
+use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+#[cfg(target_os = "windows")]
+use std::mem::size_of;
+#[cfg(target_os = "windows")]
+use windows::Win32::{
+    Foundation::HWND,
+    Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST},
+    UI::HiDpi::GetDpiForWindow,
+};
 
 #[cfg(target_os = "windows")]
 mod appbar;
 
 const LOGIN_WINDOW_LABEL: &str = "login";
+const ACCESS_APP_URL: &str = "https://mona-hub.pages.dev/app/";
+const AUTH_WINDOW_MARGIN_LOGICAL: f64 = 12.0;
+const DEFAULT_DPI: u32 = 96;
+const AUTH_IDLE: u8 = 0;
+const AUTH_WAITING_FOR_LOGIN: u8 = 1;
+const AUTH_WAITING_FOR_MAIN: u8 = 2;
+const AUTHENTICATED: u8 = 3;
 static LOGIN_REQUEST_ID: AtomicU64 = AtomicU64::new(0);
+static AUTH_FLOW_STATE: AtomicU8 = AtomicU8::new(AUTH_IDLE);
 static LOGIN_PAGE_LOAD: OnceLock<Mutex<Option<(u64, Instant)>>> = OnceLock::new();
 
 fn login_page_load() -> &'static Mutex<Option<(u64, Instant)>> {
@@ -77,6 +97,289 @@ fn minimize_login_window(window: WebviewWindow) -> Result<(), String> {
     }
 
     window.minimize().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn begin_access_login(window: WebviewWindow) -> Result<(), String> {
+    if window.label() != LOGIN_WINDOW_LABEL {
+        return Err("잘못된 창에서 Access 로그인을 요청했습니다.".to_string());
+    }
+
+    AUTH_FLOW_STATE.store(AUTH_WAITING_FOR_LOGIN, Ordering::Release);
+    log::info!("[ACCESS] login started in login WebView: {ACCESS_APP_URL}");
+    Ok(())
+}
+
+#[tauri::command]
+fn log_login_viewport(
+    window: WebviewWindow,
+    event: String,
+    inner_width: f64,
+    inner_height: f64,
+    client_width: f64,
+    client_height: f64,
+    device_pixel_ratio: f64,
+) -> Result<(), String> {
+    if window.label() != LOGIN_WINDOW_LABEL {
+        return Err("잘못된 창에서 viewport 진단을 요청했습니다.".to_string());
+    }
+
+    log::info!(
+        "[LOGIN VIEWPORT] event={event} window.inner={}x{} document.client={}x{} device_pixel_ratio={device_pixel_ratio:.2}",
+        inner_width, inner_height, client_width, client_height
+    );
+    Ok(())
+}
+
+fn is_access_app_url(url: &Url) -> bool {
+    url.scheme() == "https"
+        && url.host_str() == Some("mona-hub.pages.dev")
+        && (url.path() == "/app" || url.path().starts_with("/app/"))
+}
+
+fn auth_navigation_stage(url: &Url) -> &'static str {
+    match (url.host_str(), url.path()) {
+        (Some("mona-hub.pages.dev"), path) if path == "/app" || path.starts_with("/app/") => {
+            "protected-app"
+        }
+        (Some(host), path)
+            if host.ends_with(".cloudflareaccess.com")
+                && path.starts_with("/cdn-cgi/access/callback") =>
+        {
+            "cloudflare-callback"
+        }
+        (Some(host), path)
+            if host.ends_with(".cloudflareaccess.com") && path.starts_with("/cdn-cgi/access/") =>
+        {
+            "cloudflare-access"
+        }
+        (Some("login.microsoftonline.com"), path) if path.contains("/oauth2/authorize") => {
+            "microsoft-authorize"
+        }
+        (Some("login.microsoftonline.com"), _) => "microsoft-authentication",
+        _ => "other",
+    }
+}
+
+fn requires_auth_window(url: &Url) -> bool {
+    matches!(
+        auth_navigation_stage(url),
+        "cloudflare-access"
+            | "cloudflare-callback"
+            | "microsoft-authorize"
+            | "microsoft-authentication"
+    )
+}
+
+fn login_target_monitor(app: &AppHandle, login_window: &WebviewWindow) -> Option<tauri::Monitor> {
+    app.get_webview_window("main")
+        .and_then(|main| main.current_monitor().ok().flatten())
+        .or_else(|| login_window.current_monitor().ok().flatten())
+}
+
+fn center_login_window(app: &AppHandle, login_window: &WebviewWindow) -> tauri::Result<()> {
+    if let Some(monitor) = login_target_monitor(app, login_window) {
+        let monitor_position = monitor.position();
+        let monitor_size = monitor.size();
+        let window_size = login_window.outer_size()?;
+        let x =
+            monitor_position.x + (monitor_size.width.saturating_sub(window_size.width) / 2) as i32;
+        let y = monitor_position.y
+            + (monitor_size.height.saturating_sub(window_size.height) / 2) as i32;
+        login_window.set_position(PhysicalPosition::new(x, y))?;
+    } else {
+        login_window.center()?;
+    }
+    Ok(())
+}
+
+fn log_login_window_metrics(window: &WebviewWindow, stage: &str, moment: &str) {
+    match (window.inner_size(), window.outer_size(), window.scale_factor()) {
+        (Ok(inner), Ok(outer), Ok(scale)) => log::info!(
+            "[AUTH WINDOW] stage={stage} moment={moment} inner_physical={}x{} inner_logical={:.1}x{:.1} outer_physical={}x{} scale_factor={scale:.2}",
+            inner.width,
+            inner.height,
+            inner.width as f64 / scale,
+            inner.height as f64 / scale,
+            outer.width,
+            outer.height,
+        ),
+        (inner, outer, scale) => log::warn!(
+            "[AUTH WINDOW] stage={stage} moment={moment} measurement_failed inner={inner:?} outer={outer:?} scale={scale:?}"
+        ),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn native_hwnd(window: &WebviewWindow) -> Result<HWND, String> {
+    let handle = window
+        .window_handle()
+        .map_err(|error| format!("윈도우 핸들을 얻지 못했습니다: {error}"))?;
+    match handle.as_raw() {
+        RawWindowHandle::Win32(handle) => Ok(HWND(handle.hwnd.get() as *mut std::ffi::c_void)),
+        _ => Err("Windows HWND가 아닙니다.".into()),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn expand_auth_window_to_work_area(
+    app: &AppHandle,
+    login_window: &WebviewWindow,
+    stage: &str,
+) -> Result<(), String> {
+    let monitor_window = app
+        .get_webview_window("main")
+        .unwrap_or_else(|| login_window.clone());
+    let hwnd = native_hwnd(&monitor_window)?;
+
+    unsafe {
+        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let mut info = MONITORINFO {
+            cbSize: size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
+            return Err("모니터 작업영역을 얻지 못했습니다.".into());
+        }
+
+        let dpi = match GetDpiForWindow(hwnd) {
+            0 => DEFAULT_DPI,
+            value => value,
+        };
+        let scale = dpi as f64 / DEFAULT_DPI as f64;
+        let margin = (AUTH_WINDOW_MARGIN_LOGICAL * scale).round() as i32;
+        let rc_work = info.rcWork;
+        let desired_outer_width = (rc_work.right - rc_work.left - margin * 2).max(1) as u32;
+        let desired_outer_height = (rc_work.bottom - rc_work.top - margin * 2).max(1) as u32;
+        let current_inner = login_window
+            .inner_size()
+            .map_err(|error| format!("inner-size measurement failed: {error}"))?;
+        let current_outer = login_window
+            .outer_size()
+            .map_err(|error| format!("outer-size measurement failed: {error}"))?;
+        let frame_width = current_outer.width.saturating_sub(current_inner.width);
+        let frame_height = current_outer.height.saturating_sub(current_inner.height);
+        let inner_width = desired_outer_width.saturating_sub(frame_width).max(1);
+        let inner_height = desired_outer_height.saturating_sub(frame_height).max(1);
+        let x = rc_work.left + margin;
+        let y = rc_work.top + margin;
+
+        log::info!(
+            "[AUTH WINDOW] stage={stage} monitor_rcWork=({},{})-({},{}) dpi={dpi} scale_factor={scale:.2}",
+            rc_work.left, rc_work.top, rc_work.right, rc_work.bottom
+        );
+        login_window
+            .set_size(PhysicalSize::new(inner_width, inner_height))
+            .map_err(|error| format!("resize failed: {error}"))?;
+        login_window
+            .set_position(PhysicalPosition::new(x, y))
+            .map_err(|error| format!("position failed: {error}"))?;
+    }
+
+    Ok(())
+}
+
+fn ensure_auth_window_size(window: &tauri::Webview, url: &Url) {
+    if window.label() != LOGIN_WINDOW_LABEL || !requires_auth_window(url) {
+        return;
+    }
+
+    let Some(login_window) = window.app_handle().get_webview_window(LOGIN_WINDOW_LABEL) else {
+        log::error!("[AUTH WINDOW] login window not found");
+        return;
+    };
+    let stage = auth_navigation_stage(url);
+    log_login_window_metrics(&login_window, stage, "before-resize");
+
+    #[cfg(target_os = "windows")]
+    if let Err(error) = expand_auth_window_to_work_area(window.app_handle(), &login_window, stage) {
+        log::error!("[AUTH WINDOW] stage={stage} expansion failed: {error}");
+    }
+    log_login_window_metrics(&login_window, stage, "after-resize");
+}
+
+fn oauth_prompt(url: &Url) -> &'static str {
+    let prompt = url
+        .query_pairs()
+        .find_map(|(key, value)| (key == "prompt").then(|| value.into_owned()));
+
+    match prompt.as_deref() {
+        Some("select_account") => "select_account",
+        Some("login") => "login",
+        Some("none") => "none",
+        Some("consent") => "consent",
+        Some(_) => "other",
+        None => "absent",
+    }
+}
+
+fn has_query_parameter(url: &Url, expected: &str) -> bool {
+    url.query_pairs().any(|(key, _)| key == expected)
+}
+
+fn log_auth_navigation(label: &str, event: &str, url: &Url, state: u8) {
+    // OAuth query values can contain state, authorization codes, and other secrets.
+    // Log only the route and the presence/value category of account-selection hints.
+    log::info!(
+        "[AUTH NAVIGATION] event={event} window={label} stage={} scheme={} host={} path={} prompt={} login_hint={} domain_hint={} auth_state={state}",
+        auth_navigation_stage(url),
+        url.scheme(),
+        url.host_str().unwrap_or("<none>"),
+        url.path(),
+        oauth_prompt(url),
+        has_query_parameter(url, "login_hint"),
+        has_query_parameter(url, "domain_hint"),
+    );
+}
+
+fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadPayload<'_>) {
+    let label = window.label();
+    let url = payload.url();
+    let state = AUTH_FLOW_STATE.load(Ordering::Acquire);
+    let event = match payload.event() {
+        PageLoadEvent::Started => "started",
+        PageLoadEvent::Finished => "finished",
+    };
+    log_auth_navigation(label, event, url, state);
+
+    // Resize on navigation start so the external identity UI receives the larger
+    // viewport before it completes its first render. No script is injected there.
+    if payload.event() == PageLoadEvent::Started {
+        ensure_auth_window_size(window, url);
+    }
+
+    if payload.event() != PageLoadEvent::Finished {
+        return;
+    }
+
+    if label == LOGIN_WINDOW_LABEL && state == AUTH_WAITING_FOR_LOGIN && is_access_app_url(url) {
+        AUTH_FLOW_STATE.store(AUTH_WAITING_FOR_MAIN, Ordering::Release);
+        log::info!(
+            "[ACCESS] protected app loaded in login WebView; navigating existing main WebView"
+        );
+
+        if let Some(main) = window.app_handle().get_webview_window("main") {
+            let app_url = ACCESS_APP_URL.parse().expect("invalid Access app URL");
+            if let Err(error) = main.navigate(app_url) {
+                AUTH_FLOW_STATE.store(AUTH_WAITING_FOR_LOGIN, Ordering::Release);
+                log::error!("[ACCESS] main WebView navigation failed: {error}");
+            }
+        } else {
+            AUTH_FLOW_STATE.store(AUTH_WAITING_FOR_LOGIN, Ordering::Release);
+            log::error!("[ACCESS] main WebView not found");
+        }
+        return;
+    }
+
+    if label == "main" && state == AUTH_WAITING_FOR_MAIN && is_access_app_url(url) {
+        AUTH_FLOW_STATE.store(AUTHENTICATED, Ordering::Release);
+        log::info!("[ACCESS] protected app loaded in main WebView; hiding login window");
+        if let Some(login) = window.app_handle().get_webview_window(LOGIN_WINDOW_LABEL) {
+            if let Err(error) = login.hide() {
+                log::error!("[ACCESS] failed to hide login window: {error}");
+            }
+        }
+    }
 }
 
 #[tauri::command]
@@ -274,24 +577,8 @@ fn show_or_create_login_window(app: &AppHandle, origin: &str) -> tauri::Result<(
     );
 
     // AppBar와 같은 모니터의 전체 영역을 기준으로 로그인 창을 중앙 배치한다.
-    let target_monitor = app
-        .get_webview_window("main")
-        .and_then(|main| main.current_monitor().ok().flatten())
-        .or_else(|| login_window.current_monitor().ok().flatten());
-
     let position_started = Instant::now();
-    if let Some(monitor) = target_monitor {
-        let monitor_position = monitor.position();
-        let monitor_size = monitor.size();
-        let window_size = login_window.outer_size()?;
-        let x =
-            monitor_position.x + (monitor_size.width.saturating_sub(window_size.width) / 2) as i32;
-        let y = monitor_position.y
-            + (monitor_size.height.saturating_sub(window_size.height) / 2) as i32;
-        login_window.set_position(PhysicalPosition::new(x, y))?;
-    } else {
-        login_window.center()?;
-    }
+    center_login_window(app, &login_window)?;
     log::info!(
         "[LOGIN PERF #{request_id}] center/set_position: {:.1}ms",
         position_started.elapsed().as_secs_f64() * 1000.0
@@ -311,9 +598,12 @@ pub fn run() {
             notify_login_page_ready,
             close_login_window,
             minimize_login_window,
+            begin_access_login,
+            log_login_viewport,
             log_login_diagnostic,
             show_login_window
         ])
+        .on_page_load(handle_page_load)
         .setup(|app| {
             /*
              * 개발 모드 로그
@@ -417,7 +707,7 @@ pub fn run() {
                             return;
                         }
 
-                        let help_url = "https://hub.monas.co.kr/help/"
+                        let help_url = "https://mona-hub.pages.dev/help/"
                             .parse()
                             .expect("invalid help URL");
 

@@ -3,188 +3,21 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#171a20">
+  <meta name="theme-color" content="#454a50">
   <title>MONA Hub</title>
-  <script>
-    document.documentElement.classList.add(
-      localStorage.getItem("mona-hub.appbar-size") === "large" ? "mode-large" : "mode-small"
-    );
-  </script>
   <link rel="stylesheet" href="style.css">
 </head>
-<body class="is-signed-out">
-  <main class="launcher launcher-small" aria-label="MONA Hub Small 앱 런처">
-    <header class="launcher-header">
-      <button
-        id="allAppsButton"
-        class="all-apps-button"
-        type="button"
-        aria-label="전체 앱 열기"
-        title="전체 앱"
-      >
-        <img class="hub-icon hub-icon--expanded" src="64x64.png" alt="">
-        <img class="hub-icon hub-icon--compact" src="32x32.png" alt="">
-      </button>
-    </header>
-
-    <nav class="app-list" aria-label="MONA 애플리케이션">
-      <button
-        class="app-button"
-        type="button"
-        data-app-name="Manual Kit"
-        data-app-url="https://manualkit.pages.dev/editor"
-        aria-label="Manual Kit 열기"
-      >
-        <span class="app-icon" aria-hidden="true">
-          <img src="manual-kit-transparent.png" alt="">
-        </span>
-        <span class="app-label">Manual<br>Kit</span>
-      </button>
-
-      <button
-        class="app-button"
-        type="button"
-        data-app-name="PDFY"
-        aria-label="PDFY 열기"
-      >
-        <span class="app-icon" aria-hidden="true">
-          <img src="pdfy-transparent.png" alt="">
-        </span>
-        <span class="app-label">PDFY</span>
-      </button>
-
-      <button
-        class="app-button"
-        type="button"
-        data-app-name="MONA Radar"
-        aria-label="MONA Radar 열기"
-      >
-        <span class="app-icon" aria-hidden="true">
-          <img src="mona-radar.png" alt="">
-        </span>
-        <span class="app-label">MONA<br>Radar</span>
-      </button>
-    </nav>
-
+<body>
+  <main class="appbar" aria-label="MONA Hub 로그인 후 앱 바">
+    <header class="brand-area"><img class="hub-icon" src="../prelogin/mona-hub.png" alt="MONA Hub"></header>
+    <nav id="appList" class="app-list" aria-label="MONA 애플리케이션"></nav>
     <div class="profile-area">
-      <button
-        id="profileButton"
-        class="profile-button"
-        type="button"
-        data-auth-state="signed-out"
-        aria-label="로그인 또는 프로필 열기"
-        title="로그인 또는 프로필"
-      >
-        <span class="profile-avatar" aria-hidden="true">
-          <svg class="profile-icon" viewBox="0 0 24 24">
-            <defs>
-              <radialGradient id="profileHead" cx="34%" cy="25%" r="78%">
-                <stop offset="0" stop-color="#7d8790"></stop>
-                <stop offset="0.38" stop-color="#505962"></stop>
-                <stop offset="1" stop-color="#252b31"></stop>
-              </radialGradient>
-              <linearGradient id="profileBody" x1="7" y1="10" x2="17" y2="21" gradientUnits="userSpaceOnUse">
-                <stop offset="0" stop-color="#69737c"></stop>
-                <stop offset="0.34" stop-color="#464f57"></stop>
-                <stop offset="1" stop-color="#20262c"></stop>
-              </linearGradient>
-            </defs>
-            <circle class="profile-head" cx="12" cy="6.3" r="3.15"></circle>
-            <path
-              class="profile-body"
-              d="M9.55 9.2c.55.45 1.4.7 2.45.7s1.9-.25 2.45-.7c.18 1.2.7 2.08 1.6 2.72 1.55 1.1 2.45 2.88 2.72 5.63.1.95-.65 1.78-1.6 1.78H6.83c-.95 0-1.7-.83-1.6-1.78.27-2.75 1.17-4.53 2.72-5.63.9-.64 1.42-1.52 1.6-2.72Z"
-            ></path>
-            <path class="profile-highlight" d="M8.1 16.8c.38-2.35 1.25-3.63 2.48-4.22"></path>
-          </svg>
-        </span>
-        <span id="profileLabel" class="profile-label">로그인</span>
+      <button class="profile-avatar" type="button" aria-label="프로필" title="프로필">
+        <img class="profile-icon" src="../assets/icons/profile.svg" alt="" aria-hidden="true">
       </button>
     </div>
-
-    <div class="launcher-controls">
-      <button
-        id="sizeToggle"
-        class="size-toggle"
-        type="button"
-        aria-label="런처 바 접기"
-        aria-pressed="false"
-      >
-        <svg class="panel-icon panel-icon--close" viewBox="0 0 24 24" aria-hidden="true">
-          <rect width="18" height="18" x="3" y="3" rx="2"></rect>
-          <path d="M15 3v18"></path>
-          <path d="m9 9 3 3-3 3"></path>
-        </svg>
-        <svg class="panel-icon panel-icon--open" viewBox="0 0 24 24" aria-hidden="true">
-          <rect width="18" height="18" x="3" y="3" rx="2"></rect>
-          <path d="M15 3v18"></path>
-          <path d="m11 9-3 3 3 3"></path>
-        </svg>
-      </button>
-    </div>
-
-    <footer class="launcher-footer" aria-live="polite">
-      <span class="status-dot" aria-hidden="true"></span>
-      <span id="launcherStatus" class="status-text">준비됨</span>
-    </footer>
+    <footer class="status-area" aria-label="준비됨"><span class="status-dot" aria-hidden="true"></span></footer>
   </main>
-
-  <main class="launcher launcher-large" aria-label="MONA Hub Large 앱 런처" aria-hidden="true">
-    <header class="large-header">
-      <div class="large-brand">
-        <img class="large-brand-icon" src="64x64.png" alt="">
-        <div>
-          <strong>MONA Hub</strong>
-          <span>Applications</span>
-        </div>
-      </div>
-      <button class="size-toggle" type="button" data-size-toggle aria-label="Small 모드로 전환" title="Small 모드로 전환">
-        <svg class="panel-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <rect width="18" height="18" x="3" y="3" rx="2"></rect>
-          <path d="M15 3v18"></path>
-          <path d="m9 9 3 3-3 3"></path>
-        </svg>
-      </button>
-    </header>
-
-    <section class="large-content">
-      <div class="large-title-row">
-        <div>
-          <p class="large-eyebrow">WORKSPACE</p>
-          <h1>앱</h1>
-        </div>
-        <button class="profile-button" type="button" data-profile-button data-auth-state="signed-out" aria-label="로그인 또는 프로필 열기">
-          <span class="profile-avatar" aria-hidden="true">
-            <svg class="profile-icon" viewBox="0 0 24 24">
-              <circle class="profile-head" cx="12" cy="6.3" r="3.15"></circle>
-              <path class="profile-body" d="M9.55 9.2c.55.45 1.4.7 2.45.7s1.9-.25 2.45-.7c.18 1.2.7 2.08 1.6 2.72 1.55 1.1 2.45 2.88 2.72 5.63.1.95-.65 1.78-1.6 1.78H6.83c-.95 0-1.7-.83-1.6-1.78.27-2.75 1.17-4.53 2.72-5.63.9-.64 1.42-1.52 1.6-2.72Z"></path>
-            </svg>
-          </span>
-          <span class="profile-label" data-profile-label>로그인</span>
-        </button>
-      </div>
-
-      <nav class="large-app-grid" aria-label="MONA 애플리케이션">
-        <button class="large-app-card" type="button" data-app-name="Manual Kit" data-app-url="https://manualkit.pages.dev/editor">
-          <span class="large-app-icon"><img src="manual-kit-transparent.png" alt=""></span>
-          <span><strong>Manual Kit</strong><small>매뉴얼 편집기</small></span>
-        </button>
-        <button class="large-app-card" type="button" data-app-name="PDFY">
-          <span class="large-app-icon"><img src="pdfy-transparent.png" alt=""></span>
-          <span><strong>PDFY</strong><small>PDF 도구</small></span>
-        </button>
-        <button class="large-app-card" type="button" data-app-name="MONA Radar">
-          <span class="large-app-icon"><img src="mona-radar.png" alt=""></span>
-          <span><strong>MONA Radar</strong><small>시설 모니터링</small></span>
-        </button>
-      </nav>
-    </section>
-
-    <footer class="large-footer" aria-live="polite">
-      <span class="status-dot" aria-hidden="true"></span>
-      <span class="status-text" data-launcher-status>준비됨</span>
-    </footer>
-  </main>
-
   <script type="module" src="app.js"></script>
 </body>
 </html>

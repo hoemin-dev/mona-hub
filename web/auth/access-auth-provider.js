@@ -24,8 +24,9 @@ export class AccessAuthProvider {
 
   async getIdentity() {
     const appUrl = new URL(this.#config.appUrl);
-    const isProtectedPage =
-      location.origin === appUrl.origin && location.pathname === appUrl.pathname;
+    const appPath = appUrl.pathname.endsWith("/") ? appUrl.pathname : `${appUrl.pathname}/`;
+    const isProtectedPage = location.origin === appUrl.origin &&
+      (location.pathname === appUrl.pathname || location.pathname.startsWith(appPath));
 
     if (!isProtectedPage) return null;
 

@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "build": {
-    "devUrl": "https://dev-hub.monas.co.kr/prelogin"
+    "devUrl": "https://mona-hub.pages.dev/prelogin"
   }
 }

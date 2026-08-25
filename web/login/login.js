@@ -1,12 +1,35 @@
+import { AccessAuthProvider } from "../auth/access-auth-provider.js";
+
 const closeButton = document.getElementById("closeButton");
 const minimizeButton = document.getElementById("minimizeButton");
 const loginButton = document.getElementById("loginButton");
 const loginStatus = document.getElementById("loginStatus");
+const ACCESS_APP_URL = "https://mona-hub.pages.dev/app/";
+const accessAuth = new AccessAuthProvider({ appUrl: ACCESS_APP_URL });
 
 function pageLog(event) {
   console.log(
     `[LOGIN PAGE] ${event} t=${performance.now().toFixed(1)}ms visibility=${document.visibilityState}`
   );
+  void logViewport(event);
+}
+
+async function logViewport(event) {
+  const invoke = window.__TAURI__?.core?.invoke;
+  if (!invoke) return;
+
+  try {
+    await invoke("log_login_viewport", {
+      event,
+      innerWidth: window.innerWidth,
+      innerHeight: window.innerHeight,
+      clientWidth: document.documentElement.clientWidth,
+      clientHeight: document.documentElement.clientHeight,
+      devicePixelRatio: window.devicePixelRatio
+    });
+  } catch (error) {
+    console.error("로그인 viewport 진단 전달 실패:", error);
+  }
 }
 
 async function notifyPageReady() {
@@ -24,8 +47,25 @@ function setLoginStatus(message) {
   loginStatus.textContent = message;
 }
 
-function handleLogin() {
-  setLoginStatus("인증 서비스 연결 준비 중입니다.");
+async function handleLogin() {
+  const invoke = window.__TAURI__?.core?.invoke;
+  if (!invoke) {
+    setLoginStatus("Tauri 인증 연결을 사용할 수 없습니다.");
+    return;
+  }
+
+  loginButton.disabled = true;
+  setLoginStatus("Cloudflare Access에 연결 중입니다.");
+
+  try {
+    // Rust가 이 시점부터 최종 navigation을 관찰한 뒤에만 성공 처리한다.
+    await invoke("begin_access_login");
+    accessAuth.login();
+  } catch (error) {
+    loginButton.disabled = false;
+    setLoginStatus("인증을 시작하지 못했습니다.");
+    console.error("Cloudflare Access 로그인 시작 실패:", error);
+  }
 }
 
 async function closeLoginWindow() {

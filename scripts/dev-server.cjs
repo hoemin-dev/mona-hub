@@ -14,9 +14,14 @@ const contentTypes = {
 };
 http.createServer((request, response) => {
   const pathname = decodeURIComponent(new URL(request.url, `http://${request.headers.host}`).pathname);
-  const requestedFile = pathname === "/prelogin" || pathname === "/prelogin/" || pathname === "/"
-    ? "prelogin/index.html"
-    : pathname.replace(/^\/+/, "");
+  const pageRoutes = {
+    "/": "prelogin/index.html",
+    "/prelogin": "prelogin/index.html",
+    "/prelogin/": "prelogin/index.html",
+    "/app": "app/index.html",
+    "/app/": "app/index.html"
+  };
+  const requestedFile = pageRoutes[pathname] || pathname.replace(/^\/+/, "");
   const filePath = path.resolve(root, requestedFile);
 
   if (filePath !== root && !filePath.startsWith(`${root}${path.sep}`)) {

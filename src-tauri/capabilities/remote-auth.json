@@ -5,8 +5,9 @@
   "windows": ["main"],
   "remote": {
     "urls": [
-      "https://dev-hub.monas.co.kr/*",
-      "https://hub.monas.co.kr/*"
+      "https://mona-hub.pages.dev/*",
+      "https://mona-hub.pages.dev/*",
+      "https://mona-hub.pages.dev*"
     ]
   },
   "permissions": []
