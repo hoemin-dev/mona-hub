@@ -9,7 +9,7 @@
     "tauri:dev": "tauri dev",
     "tauri:dev:access": "tauri dev --config src-tauri/tauri.access-dev.conf.json",
     "tauri:build": "tauri build",
-    "check": "node --check web/login/login.js && node --check web/app/app.js && node --check web/profile-popup/popup.js && node --check web/auth/auth-controller.js && node --check web/auth/access-auth-provider.js && node --check web/app/config/environment.js"
+    "check": "node --check web/login/login.js && node --check web/app/app.js && node --check web/profile-popup/popup.js && node --check web/auth/auth-controller.js && node --check web/auth/access-auth-provider.js && node --check web/config/auth.js && node --check web/app/config/environment.js"
   },
   "repository": {
     "type": "git",

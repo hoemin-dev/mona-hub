@@ -1,5 +1,5 @@
 import { AccessAuthProvider } from "../auth/access-auth-provider.js";
-import { authConfig } from "../app/config/environment.js";
+import { authConfig } from "../config/auth.js";
 
 const closeButton = document.getElementById("closeButton");
 const minimizeButton = document.getElementById("minimizeButton");
