@@ -396,10 +396,10 @@ mod login_url_tests {
             "https://mona-hub.pages.dev/login/"
         )));
         assert!(!is_active_login_url(&url(
-            "http://localhost:1420/login/login.html"
+            "http://localhost:1420/login/"
         )));
         assert!(!is_active_login_url(&url(
-            "https://tauri.localhost/login/login.html"
+            "https://tauri.localhost/login/"
         )));
     }
 
@@ -641,6 +641,13 @@ fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadP
                 if let Err(error) = login_window.navigate(start_url) {
                     log::error!("[auth] startup local login navigation failed: {error}");
                 }
+            }
+            if let Err(error) = login_window
+                .unminimize()
+                .and_then(|_| login_window.show())
+                .and_then(|_| login_window.set_focus())
+            {
+                log::error!("[auth] startup local login show failed: {error}");
             }
         }
         return;

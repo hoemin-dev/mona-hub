@@ -12,6 +12,7 @@
   },
   "permissions": [
     "core:default",
+    "allow-show-login-window",
     "allow-toggle-profile-popup",
     "allow-begin-access-logout"
   ]
