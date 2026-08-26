@@ -1,10 +1,12 @@
 const ENVIRONMENTS = Object.freeze({
   development: Object.freeze({
     preloginUrl: "https://mona-hub.pages.dev/prelogin/",
+    loginUrl: "https://mona-hub.pages.dev/login/",
     appUrl: "https://mona-hub.pages.dev/app/"
   }),
   production: Object.freeze({
     preloginUrl: "https://mona-hub.pages.dev/prelogin/",
+    loginUrl: "https://mona-hub.pages.dev/login/",
     appUrl: "https://mona-hub.pages.dev/app/"
   })
 });

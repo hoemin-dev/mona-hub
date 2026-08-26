@@ -1,11 +1,11 @@
 import { AccessAuthProvider } from "../auth/access-auth-provider.js";
+import { authConfig } from "../app/config/environment.js";
 
 const closeButton = document.getElementById("closeButton");
 const minimizeButton = document.getElementById("minimizeButton");
 const loginButton = document.getElementById("loginButton");
 const loginStatus = document.getElementById("loginStatus");
-const ACCESS_APP_URL = "https://mona-hub.pages.dev/app/";
-const accessAuth = new AccessAuthProvider({ appUrl: ACCESS_APP_URL });
+const accessAuth = new AccessAuthProvider({ appUrl: authConfig.appUrl });
 
 function pageLog(event) {
   console.log(

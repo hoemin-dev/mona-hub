@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "url": "prelogin/index.html",
+        "url": "https://mona-hub.pages.dev/prelogin/",
         "useHttpsScheme": true,
         "title": "MONA-HUB",
         "width": 36,

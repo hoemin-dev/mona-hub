@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/remote-schema.json",
+  "identifier": "remote-login",
+  "description": "Allows only the MonaHub login page commands required by the login window.",
+  "windows": ["login"],
+  "remote": {
+    "urls": ["https://mona-hub.pages.dev/login/*"]
+  },
+  "permissions": [
+    "allow-notify-login-page-ready",
+    "allow-close-login-window",
+    "allow-minimize-login-window",
+    "allow-begin-access-login",
+    "allow-log-login-viewport"
+  ]
+}

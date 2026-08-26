@@ -18,6 +18,8 @@ http.createServer((request, response) => {
     "/": "prelogin/index.html",
     "/prelogin": "prelogin/index.html",
     "/prelogin/": "prelogin/index.html",
+    "/login": "login/index.html",
+    "/login/": "login/index.html",
     "/app": "app/index.html",
     "/app/": "app/index.html"
   };
