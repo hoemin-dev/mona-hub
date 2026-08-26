@@ -9,25 +9,11 @@ export class AccessAuthProvider {
     window.location.assign(this.#config.appUrl);
   }
 
-  logoutUrl() {
-    return new URL("/cdn-cgi/access/logout", this.#config.appUrl);
-  }
-
   async logout(navigate) {
-    if (typeof navigate === "function") {
-      await navigate(this.logoutUrl());
-      return;
+    if (typeof navigate !== "function") {
+      throw new Error("A browser navigation handler is required for logout");
     }
-
-    const response = await fetch(this.logoutUrl(), {
-      credentials: "include",
-      cache: "no-store",
-      redirect: "follow"
-    });
-
-    if (!response.ok) {
-      throw new Error(`Cloudflare Access logout failed (${response.status})`);
-    }
+    await navigate();
   }
 
   async getIdentity() {

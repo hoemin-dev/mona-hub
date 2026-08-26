@@ -19,6 +19,7 @@ window.addEventListener("unhandledrejection", event => {
 });
 
 function showMenu() {
+  confirmButton.disabled = false;
   confirmView.hidden = true;
   menuView.hidden = false;
   logoutItem.focus();

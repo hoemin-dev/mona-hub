@@ -11,9 +11,9 @@ const authController = new AuthController(
   new AccessAuthProvider({ appUrl: authConfig.appUrl }),
   {
     preloginUrl: authConfig.preloginUrl,
-    logoutNavigator: async logoutUrl => {
+    logoutNavigator: async () => {
       if (!invoke) throw new Error("Tauri logout bridge is unavailable");
-      await invoke("begin_access_logout", { logoutUrl: logoutUrl.href });
+      await invoke("begin_access_logout");
     }
   }
 );

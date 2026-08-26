@@ -30,16 +30,20 @@ mod appbar;
 
 const LOGIN_WINDOW_LABEL: &str = "login";
 const PROFILE_POPUP_LABEL: &str = "profile-popup";
-const ACCESS_APP_URL: &str = "https://mona-hub.pages.dev/app/";
-const PRELOGIN_URL: &str = "https://mona-hub.pages.dev/prelogin/";
+const APP_BASE_URL: &str = "https://mona-hub.pages.dev";
+const ENTRA_TENANT_ID: &str = "40248705-eb98-485c-b761-ac9fd07e2baa";
+const ACCESS_APP_PATH: &str = "/app/";
+const PRELOGIN_PATH: &str = "/prelogin/";
+const ACCESS_LOGOUT_PATH: &str = "/cdn-cgi/access/logout";
+const LOGOUT_COMPLETE_PATH: &str = "/logout-complete/";
 const AUTH_WINDOW_MARGIN_LOGICAL: f64 = 12.0;
 const DEFAULT_DPI: u32 = 96;
 const AUTH_IDLE: u8 = 0;
 const AUTH_WAITING_FOR_LOGIN: u8 = 1;
 const AUTH_WAITING_FOR_MAIN: u8 = 2;
 const AUTHENTICATED: u8 = 3;
-const AUTH_LOGOUT_NAVIGATING: u8 = 4;
-const AUTH_VERIFYING_LOGOUT: u8 = 5;
+const AUTH_LOGGING_OUT_CLOUDFLARE: u8 = 4;
+const AUTH_LOGGING_OUT_ENTRA: u8 = 5;
 static LOGIN_REQUEST_ID: AtomicU64 = AtomicU64::new(0);
 static AUTH_FLOW_STATE: AtomicU8 = AtomicU8::new(AUTH_IDLE);
 static LOGIN_PAGE_LOAD: OnceLock<Mutex<Option<(u64, Instant)>>> = OnceLock::new();
@@ -96,6 +100,17 @@ fn close_login_window(window: WebviewWindow) -> Result<(), String> {
         return Err("잘못된 창에서 로그인 닫기를 요청했습니다.".to_string());
     }
 
+    if is_logging_out() {
+        AUTH_FLOW_STATE.store(AUTHENTICATED, Ordering::Release);
+        if let Ok(start) = login_start_url().lock() {
+            if let Some(url) = start.clone() {
+                let _ = window.navigate(url);
+            }
+        }
+        log::warn!(
+            "[logout] cancelled by user; authenticated UI retained so logout can be retried"
+        );
+    }
     log::info!("[LOGIN] close requested: hide existing window");
     window.hide().map_err(|error| error.to_string())
 }
@@ -115,8 +130,11 @@ fn begin_access_login(window: WebviewWindow) -> Result<(), String> {
         return Err("잘못된 창에서 Access 로그인을 요청했습니다.".to_string());
     }
 
+    if is_logging_out() {
+        return Err("로그아웃이 진행 중입니다.".to_string());
+    }
     AUTH_FLOW_STATE.store(AUTH_WAITING_FOR_LOGIN, Ordering::Release);
-    log::info!("[ACCESS] login started in login WebView: {ACCESS_APP_URL}");
+    log::info!("[ACCESS] login started in login WebView");
     Ok(())
 }
 
@@ -145,6 +163,37 @@ fn is_access_app_url(url: &Url) -> bool {
     url.scheme() == "https"
         && url.host_str() == Some("mona-hub.pages.dev")
         && (url.path() == "/app" || url.path().starts_with("/app/"))
+}
+
+fn is_logout_complete_url(url: &Url) -> bool {
+    url.scheme() == "https"
+        && url.host_str() == Some("mona-hub.pages.dev")
+        && url.path().trim_end_matches('/') == LOGOUT_COMPLETE_PATH.trim_end_matches('/')
+}
+
+fn app_url(path: &str) -> Url {
+    format!("{APP_BASE_URL}{path}")
+        .parse()
+        .expect("invalid MonaHub URL configuration")
+}
+
+fn entra_logout_url() -> Url {
+    let mut url: Url =
+        format!("https://login.microsoftonline.com/{ENTRA_TENANT_ID}/oauth2/v2.0/logout")
+            .parse()
+            .expect("invalid Entra logout URL configuration");
+    url.query_pairs_mut().append_pair(
+        "post_logout_redirect_uri",
+        &format!("{APP_BASE_URL}{LOGOUT_COMPLETE_PATH}"),
+    );
+    url
+}
+
+fn is_logging_out() -> bool {
+    matches!(
+        AUTH_FLOW_STATE.load(Ordering::Acquire),
+        AUTH_LOGGING_OUT_CLOUDFLARE | AUTH_LOGGING_OUT_ENTRA
+    )
 }
 
 fn auth_navigation_stage(url: &Url) -> &'static str {
@@ -355,37 +404,29 @@ fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadP
     }
     log_auth_navigation(label, event, url, state);
 
-    if label == "main"
-        && state == AUTH_VERIFYING_LOGOUT
+    if label == LOGIN_WINDOW_LABEL
+        && state == AUTH_LOGGING_OUT_ENTRA
         && payload.event() == PageLoadEvent::Started
+        && is_logout_complete_url(url)
     {
-        if !is_access_app_url(url)
-            && matches!(
-                auth_navigation_stage(url),
-                "cloudflare-access" | "microsoft-authorize" | "microsoft-authentication"
-            )
-        {
-            log::info!("[ACCESS LOGOUT] protected /app/ requires authentication; logout verified");
-            AUTH_FLOW_STATE.store(AUTH_IDLE, Ordering::Release);
-            if let Some(popup) = window.app_handle().get_webview_window(PROFILE_POPUP_LABEL) {
-                let _ = popup.hide();
-            }
-            if let Some(login) = window.app_handle().get_webview_window(LOGIN_WINDOW_LABEL) {
-                if let Ok(start) = login_start_url().lock() {
-                    if let Some(url) = start.clone() {
-                        let _ = login.navigate(url);
-                    }
-                }
-                let _ = login.hide();
-            }
-            let prelogin_url = PRELOGIN_URL.parse().expect("invalid prelogin URL");
-            if let Some(main) = window.app_handle().get_webview_window("main") {
-                if let Err(error) = main.navigate(prelogin_url) {
-                    log::error!("[ACCESS LOGOUT] prelogin navigation failed: {error}");
-                }
-            }
-            return;
+        log::info!("[logout] logout-complete reached");
+        AUTH_FLOW_STATE.store(AUTH_IDLE, Ordering::Release);
+        if let Err(error) = window.hide() {
+            log::error!("[logout] failed to hide login window: {error}");
         }
+        if let Some(popup) = window.app_handle().get_webview_window(PROFILE_POPUP_LABEL) {
+            let _ = popup.hide();
+        }
+        log::info!("[logout] switching to prelogin");
+        if let Some(main) = window.app_handle().get_webview_window("main") {
+            if let Err(error) = main.navigate(app_url(PRELOGIN_PATH)) {
+                AUTH_FLOW_STATE.store(AUTHENTICATED, Ordering::Release);
+                log::error!("[logout] prelogin navigation failed; logout can be retried: {error}");
+                return;
+            }
+        }
+        log::info!("[logout] completed");
+        return;
     }
 
     // Resize on navigation start so the external identity UI receives the larger
@@ -398,22 +439,14 @@ fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadP
         return;
     }
 
-    if label == "main" && state == AUTH_LOGOUT_NAVIGATING {
-        AUTH_FLOW_STATE.store(AUTH_VERIFYING_LOGOUT, Ordering::Release);
-        log::info!("[ACCESS LOGOUT] logout navigation completed; verifying protected /app/");
-        if let Some(main) = window.app_handle().get_webview_window("main") {
-            let app_url = ACCESS_APP_URL.parse().expect("invalid Access app URL");
-            if let Err(error) = main.navigate(app_url) {
-                AUTH_FLOW_STATE.store(AUTHENTICATED, Ordering::Release);
-                log::error!("[ACCESS LOGOUT] verification navigation failed: {error}");
-            }
+    if label == LOGIN_WINDOW_LABEL && state == AUTH_LOGGING_OUT_CLOUDFLARE {
+        AUTH_FLOW_STATE.store(AUTH_LOGGING_OUT_ENTRA, Ordering::Release);
+        log::info!("[logout] cloudflare logout navigation completed");
+        log::info!("[logout] entra logout");
+        if let Err(error) = window.navigate(entra_logout_url()) {
+            AUTH_FLOW_STATE.store(AUTHENTICATED, Ordering::Release);
+            log::error!("[logout] Entra navigation failed; logout can be retried: {error}");
         }
-        return;
-    }
-
-    if label == "main" && state == AUTH_VERIFYING_LOGOUT && is_access_app_url(url) {
-        AUTH_FLOW_STATE.store(AUTHENTICATED, Ordering::Release);
-        log::error!("[ACCESS LOGOUT] verification failed: protected /app/ still loaded without Access authentication");
         return;
     }
 
@@ -424,8 +457,7 @@ fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadP
         );
 
         if let Some(main) = window.app_handle().get_webview_window("main") {
-            let app_url = ACCESS_APP_URL.parse().expect("invalid Access app URL");
-            if let Err(error) = main.navigate(app_url) {
+            if let Err(error) = main.navigate(app_url(ACCESS_APP_PATH)) {
                 AUTH_FLOW_STATE.store(AUTH_WAITING_FOR_LOGIN, Ordering::Release);
                 log::error!("[ACCESS] main WebView navigation failed: {error}");
             }
@@ -530,6 +562,9 @@ fn toggle_profile_popup(window: WebviewWindow) -> Result<bool, String> {
     if window.label() != "main" {
         return Err("잘못된 창에서 프로필 메뉴를 요청했습니다.".into());
     }
+    if is_logging_out() {
+        return Ok(false);
+    }
     let popup = profile_popup(window.app_handle()).map_err(|e| e.to_string())?;
     if let Ok(mut blurred_at) = PROFILE_POPUP_BLURRED_AT
         .get_or_init(|| Mutex::new(None))
@@ -594,28 +629,42 @@ fn confirm_access_logout(window: WebviewWindow) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn begin_access_logout(window: WebviewWindow, logout_url: String) -> Result<(), String> {
+fn begin_access_logout(window: WebviewWindow) -> Result<(), String> {
     if window.label() != "main" {
         return Err("잘못된 창에서 로그아웃을 요청했습니다.".into());
     }
-    let url: Url = logout_url
-        .parse()
-        .map_err(|_| "잘못된 logout URL입니다.".to_string())?;
-    if url.scheme() != "https"
-        || url.host_str() != Some("mona-hub.pages.dev")
-        || url.path() != "/cdn-cgi/access/logout"
-    {
-        return Err("현재 Access origin의 logout endpoint가 아닙니다.".into());
-    }
-    AUTH_FLOW_STATE.store(AUTH_LOGOUT_NAVIGATING, Ordering::Release);
-    log::info!(
-        "[ACCESS LOGOUT] navigating current main WebView to official Access logout endpoint"
-    );
-    window.navigate(url).map_err(|error| {
+    AUTH_FLOW_STATE
+        .compare_exchange(
+            AUTHENTICATED,
+            AUTH_LOGGING_OUT_CLOUDFLARE,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        )
+        .map_err(|state| format!("로그아웃을 시작할 수 없는 인증 상태입니다: {state}"))?;
+    let Some(login) = window.app_handle().get_webview_window(LOGIN_WINDOW_LABEL) else {
         AUTH_FLOW_STATE.store(AUTHENTICATED, Ordering::Release);
-        log::error!("[ACCESS LOGOUT] navigation failed: {error}");
-        error.to_string()
-    })
+        return Err("login 창을 찾을 수 없습니다.".into());
+    };
+    log::info!("[logout] started");
+    log::info!("[logout] opening login window");
+    if let Err(error) = login
+        .unminimize()
+        .and_then(|_| login.show())
+        .and_then(|_| login.set_focus())
+    {
+        AUTH_FLOW_STATE.store(AUTHENTICATED, Ordering::Release);
+        log::error!("[logout] login window preparation failed; logout can be retried: {error}");
+        return Err(error.to_string());
+    }
+    log::info!("[logout] cloudflare access logout");
+    login
+        .navigate(app_url(ACCESS_LOGOUT_PATH))
+        .map_err(|error| {
+            AUTH_FLOW_STATE.store(AUTHENTICATED, Ordering::Release);
+            let _ = login.hide();
+            log::error!("[logout] Cloudflare navigation failed; logout can be retried: {error}");
+            error.to_string()
+        })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -650,6 +699,10 @@ fn login_diagnostic_operation(origin: &str) -> LoginDiagnosticOperation {
 }
 
 fn show_or_create_login_window(app: &AppHandle, origin: &str) -> tauri::Result<()> {
+    if is_logging_out() {
+        log::warn!("[LOGIN] show ignored while logout is in progress ({origin})");
+        return Ok(());
+    }
     let request_id = LOGIN_REQUEST_ID.fetch_add(1, Ordering::Relaxed) + 1;
     let total_started = Instant::now();
     let thread_id = format!("{:?}", std::thread::current().id());
@@ -1046,6 +1099,19 @@ pub fn run() {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == LOGIN_WINDOW_LABEL {
                     api.prevent_close();
+                    if is_logging_out() {
+                        AUTH_FLOW_STATE.store(AUTHENTICATED, Ordering::Release);
+                        if let Ok(start) = login_start_url().lock() {
+                            if let Some(url) = start.clone() {
+                                if let Some(login) =
+                                    window.app_handle().get_webview_window(LOGIN_WINDOW_LABEL)
+                                {
+                                    let _ = login.navigate(url);
+                                }
+                            }
+                        }
+                        log::warn!("[logout] cancelled by native close; logout can be retried");
+                    }
                     log::info!("[LOGIN] native close requested: hide existing window");
                     let _ = window.hide();
                     return;
