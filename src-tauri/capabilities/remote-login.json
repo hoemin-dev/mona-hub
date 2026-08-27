@@ -4,7 +4,7 @@
   "description": "Allows only the MonaHub login page commands required by the login window.",
   "windows": ["login"],
   "remote": {
-    "urls": ["https://mona-hub.pages.dev/login/*"]
+    "urls": ["https://mona-hub.pages.dev"]
   },
   "permissions": [
     "allow-notify-login-page-ready",
