@@ -20,11 +20,12 @@ use windows::{
                 ABM_WINDOWPOSCHANGED, ABN_POSCHANGED, APPBARDATA,
             },
             WindowsAndMessaging::{
-                CallWindowProcW, GetClientRect, GetWindowLongPtrW, GetWindowRect, PostMessageW,
-                RegisterWindowMessageW, SetWindowLongPtrW, SetWindowPos, GWLP_WNDPROC, GWL_EXSTYLE,
-                SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-                WM_ACTIVATE, WM_DESTROY, WM_DEVICECHANGE, WM_DISPLAYCHANGE, WM_DPICHANGED,
-                WM_SETTINGCHANGE, WM_WINDOWPOSCHANGED, WNDPROC, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+                CallWindowProcW, GetClientRect, GetWindowLongPtrW, GetWindowRect, IsWindowVisible,
+                PostMessageW, RegisterWindowMessageW, SetWindowLongPtrW, SetWindowPos,
+                GWLP_WNDPROC, GWL_EXSTYLE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
+                SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, WM_ACTIVATE, WM_DESTROY, WM_DEVICECHANGE,
+                WM_DISPLAYCHANGE, WM_DPICHANGED, WM_SETTINGCHANGE, WM_WINDOWPOSCHANGED, WNDPROC,
+                WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
             },
         },
     },
@@ -133,7 +134,28 @@ fn rect_text(r: RECT) -> String {
     )
 }
 
-fn negotiate(hwnd: HWND) -> Result<(), String> {
+pub fn log_window_state(window: &WebviewWindow, stage: &str) {
+    match hwnd(window) {
+        Ok(hwnd) => unsafe {
+            let mut rect = RECT::default();
+            if GetWindowRect(hwnd, &mut rect).is_ok() {
+                log::info!(
+                    "{stage} GetWindowRect={} IsWindowVisible={}",
+                    rect_text(rect),
+                    IsWindowVisible(hwnd).as_bool()
+                );
+            } else {
+                log::warn!(
+                    "{stage} GetWindowRect=<failed> IsWindowVisible={}",
+                    IsWindowVisible(hwnd).as_bool()
+                );
+            }
+        },
+        Err(error) => log::warn!("{stage} HWND=<failed: {error}>"),
+    }
+}
+
+fn negotiate(hwnd: HWND, show: bool) -> Result<(), String> {
     if !REGISTERED.load(Ordering::SeqCst) || !owns(hwnd) || POSITIONING.swap(true, Ordering::SeqCst)
     {
         return Ok(());
@@ -155,10 +177,12 @@ fn negotiate(hwnd: HWND) -> Result<(), String> {
             ..Default::default()
         };
         QUERY_COUNT.fetch_add(1, Ordering::Relaxed);
+        log_window_state_raw(hwnd, "APPBAR_QUERYPOS");
         SHAppBarMessage(ABM_QUERYPOS, &mut bar);
         let queried = bar.rc;
         bar.rc.left = bar.rc.right - width;
         SETPOS_COUNT.fetch_add(1, Ordering::Relaxed);
+        log_window_state_raw(hwnd, "APPBAR_SETPOS");
         if SHAppBarMessage(ABM_SETPOS, &mut bar) == 0 {
             return Err("Windows AppBar 위치 예약에 실패했습니다.".into());
         }
@@ -170,16 +194,16 @@ fn negotiate(hwnd: HWND) -> Result<(), String> {
         if w <= 0 || h <= 0 {
             return Err(format!("잘못된 AppBar 영역: {}", rect_text(final_rect)));
         }
-        SetWindowPos(
-            hwnd,
-            None,
-            final_rect.left,
-            final_rect.top,
-            w,
-            h,
-            SWP_NOACTIVATE | SWP_NOZORDER,
-        )
-        .map_err(|e| format!("AppBar 창 이동 실패: {e}"))?;
+        let mut flags = SWP_NOACTIVATE | SWP_NOZORDER;
+        if show {
+            flags |= SWP_SHOWWINDOW;
+        }
+        SetWindowPos(hwnd, None, final_rect.left, final_rect.top, w, h, flags)
+            .map_err(|e| format!("AppBar 창 이동 실패: {e}"))?;
+        log_window_state_raw(hwnd, "APPBAR_SETWINDOWPOS_DONE");
+        if show {
+            log_window_state_raw(hwnd, "MAIN_FIRST_VISIBLE");
+        }
 
         #[cfg(debug_assertions)]
         {
@@ -193,6 +217,21 @@ fn negotiate(hwnd: HWND) -> Result<(), String> {
     })();
     POSITIONING.store(false, Ordering::SeqCst);
     result
+}
+
+fn log_window_state_raw(hwnd: HWND, stage: &str) {
+    unsafe {
+        let mut rect = RECT::default();
+        let rect_value = if GetWindowRect(hwnd, &mut rect).is_ok() {
+            rect_text(rect)
+        } else {
+            "<failed>".into()
+        };
+        log::info!(
+            "{stage} GetWindowRect={rect_value} IsWindowVisible={}",
+            IsWindowVisible(hwnd).as_bool()
+        );
+    }
 }
 
 fn queue_reposition(hwnd: HWND) {
@@ -238,7 +277,7 @@ unsafe extern "system" fn appbar_wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: L
                 std::thread::current().id()
             );
             REPOSITION_QUEUED.store(false, Ordering::SeqCst);
-            if let Err(e) = negotiate(hwnd) {
+            if let Err(e) = negotiate(hwnd, false) {
                 log::error!("AppBar 재협상 실패: {e}");
             }
             return LRESULT(0);
@@ -255,19 +294,18 @@ unsafe extern "system" fn appbar_wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: L
                 std::thread::current().id()
             );
         }
-        WM_WINDOWPOSCHANGED
-            if REGISTERED.load(Ordering::SeqCst)
-                && owns(hwnd)
-                && !POSITIONING.load(Ordering::SeqCst) =>
-        {
+        WM_WINDOWPOSCHANGED if REGISTERED.load(Ordering::SeqCst) && owns(hwnd) => {
             let count = WINDOWPOS_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
             log::info!(
                 "[APPBAR MSG] WM_WINDOWPOSCHANGED count={} thread={:?}",
                 count,
                 std::thread::current().id()
             );
-            let mut bar = data(hwnd);
-            SHAppBarMessage(ABM_WINDOWPOSCHANGED, &mut bar);
+            log_window_state_raw(hwnd, "WM_WINDOWPOSCHANGED");
+            if !POSITIONING.load(Ordering::SeqCst) {
+                let mut bar = data(hwnd);
+                SHAppBarMessage(ABM_WINDOWPOSCHANGED, &mut bar);
+            }
         }
         WM_DESTROY if REGISTERED.swap(false, Ordering::SeqCst) && owns(hwnd) => {
             let mut bar = data(hwnd);
@@ -327,12 +365,13 @@ fn apply_tool_style(hwnd: HWND) -> Result<(), String> {
     Ok(())
 }
 
-pub fn register(window: &WebviewWindow) -> Result<(), String> {
+fn register_impl(window: &WebviewWindow, show: bool) -> Result<(), String> {
     let hwnd = hwnd(window)?;
+    log_window_state_raw(hwnd, "APPBAR_ABM_NEW_START");
     apply_tool_style(hwnd)?;
     if REGISTERED.load(Ordering::SeqCst) {
         return if owns(hwnd) {
-            negotiate(hwnd)
+            negotiate(hwnd, show)
         } else {
             Err("다른 AppBar 창이 이미 등록되어 있습니다.".into())
         };
@@ -362,8 +401,9 @@ pub fn register(window: &WebviewWindow) -> Result<(), String> {
             return Err("Windows Shell에 AppBar 등록을 실패했습니다.".into());
         }
     }
+    log_window_state_raw(hwnd, "APPBAR_ABM_NEW_DONE");
     REGISTERED.store(true, Ordering::SeqCst);
-    if let Err(e) = negotiate(hwnd) {
+    if let Err(e) = negotiate(hwnd, show) {
         let _ = unregister(window);
         return Err(e);
     }
@@ -376,6 +416,14 @@ pub fn register(window: &WebviewWindow) -> Result<(), String> {
         log::info!("Tauri measurement: scale_factor={scale:.2}, inner_physical={}x{}, inner_logical={:.2}x{:.2}, outer_physical={}x{}", inner.width,inner.height,inner.width as f64/scale,inner.height as f64/scale,outer.width,outer.height);
     }
     Ok(())
+}
+
+pub fn register(window: &WebviewWindow) -> Result<(), String> {
+    register_impl(window, false)
+}
+
+pub fn register_and_show(window: &WebviewWindow) -> Result<(), String> {
+    register_impl(window, true)
 }
 
 pub fn unregister(window: &WebviewWindow) -> Result<(), String> {

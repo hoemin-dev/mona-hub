@@ -1,9 +1,9 @@
 use std::{
     sync::{
-        atomic::{AtomicU64, AtomicU8, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering},
         Mutex, OnceLock,
     },
-    time::Instant,
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::webview::PageLoadEvent;
 use tauri::{
@@ -38,6 +38,8 @@ static AUTH_FLOW_STATE: AtomicU8 = AtomicU8::new(AUTH_IDLE);
 static LOGIN_PAGE_LOAD: OnceLock<Mutex<Option<(u64, Instant)>>> = OnceLock::new();
 static LOGIN_START_URL: OnceLock<Mutex<Option<Url>>> = OnceLock::new();
 static PROFILE_POPUP_BLURRED_AT: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
+static MAIN_FIRST_NAV_STARTED_LOGGED: AtomicBool = AtomicBool::new(false);
+static MAIN_FIRST_NAV_FINISHED_LOGGED: AtomicBool = AtomicBool::new(false);
 
 struct TrayAuthMenuItem(MenuItem<tauri::Wry>);
 
@@ -598,6 +600,35 @@ fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadP
         PageLoadEvent::Started => "started",
         PageLoadEvent::Finished => "finished",
     };
+    if label == "main" {
+        let first_event = match payload.event() {
+            PageLoadEvent::Started => !MAIN_FIRST_NAV_STARTED_LOGGED.swap(true, Ordering::AcqRel),
+            PageLoadEvent::Finished => {
+                !MAIN_FIRST_NAV_FINISHED_LOGGED.swap(true, Ordering::AcqRel)
+            }
+        };
+        if first_event {
+            match payload.event() {
+                PageLoadEvent::Started => {
+                    log::info!("MAIN_FIRST_NAV_STARTED url={}", safe_url_for_log(url))
+                }
+                PageLoadEvent::Finished => {
+                    log::info!("MAIN_FIRST_NAV_FINISHED url={}", safe_url_for_log(url))
+                }
+            }
+            #[cfg(target_os = "windows")]
+            if let Some(main) = window.app_handle().get_webview_window("main") {
+                appbar::log_window_state(
+                    &main,
+                    if payload.event() == PageLoadEvent::Started {
+                        "MAIN_FIRST_NAV_STARTED_STATE"
+                    } else {
+                        "MAIN_FIRST_NAV_FINISHED_STATE"
+                    },
+                );
+            }
+        }
+    }
     if label == PROFILE_POPUP_LABEL {
         log::info!("[profile-popup] page load {event}: {url}");
     }
@@ -622,6 +653,38 @@ fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadP
             };
             if let Err(error) = result {
                 log::error!("[auth-window] presentation update failed: {error}");
+            }
+        }
+    }
+
+    // After Access completes, the login WebView itself is redirected to the
+    // protected app. Hide it at the navigation boundary so /app/ can finish
+    // loading without ever being painted in the standalone login window. The
+    // Finished event below still gates navigation of the existing main WebView.
+    if label == LOGIN_WINDOW_LABEL
+        && state == AUTH_WAITING_FOR_LOGIN
+        && payload.event() == PageLoadEvent::Started
+        && is_access_app_url(url)
+    {
+        if let Some(login_window) = window.app_handle().get_webview_window(LOGIN_WINDOW_LABEL) {
+            match window.app_handle().get_webview_window("main") {
+                Some(main) => match main.url() {
+                    Ok(main_url) => log::info!(
+                        "[ACCESS] protected app navigation started in login WebView; hiding login window before paint; main current url={}",
+                        safe_url_for_log(&main_url)
+                    ),
+                    Err(error) => log::warn!(
+                        "[ACCESS] protected app navigation started in login WebView; hiding login window before paint; main current url=<unavailable: {error}>"
+                    ),
+                },
+                None => log::warn!(
+                    "[ACCESS] protected app navigation started in login WebView; hiding login window before paint; main window missing"
+                ),
+            }
+            if let Err(error) = login_window.hide() {
+                log::error!(
+                    "[ACCESS] failed to hide login window before protected app paint: {error}"
+                );
             }
         }
     }
@@ -680,6 +743,18 @@ fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadP
         if let Err(error) = window.navigate(entra_logout_url()) {
             set_auth_state(window.app_handle(), AUTHENTICATED);
             log::error!("[logout] Entra navigation failed; logout can be retried: {error}");
+        } else if let Some(login_window) = window
+            .app_handle()
+            .get_webview_window(LOGIN_WINDOW_LABEL)
+        {
+            log::info!("[logout] opening login window");
+            if let Err(error) = login_window
+                .unminimize()
+                .and_then(|_| login_window.show())
+                .and_then(|_| login_window.set_focus())
+            {
+                log::error!("[logout] failed to show logout window: {error}");
+            }
         }
         return;
     }
@@ -884,19 +959,18 @@ fn begin_access_logout(window: WebviewWindow) -> Result<(), String> {
         return Err("login 창을 찾을 수 없습니다.".into());
     };
     log::info!("[logout] started");
-    log::info!("[logout] opening login window");
+    match login.url() {
+        Ok(url) => log::info!(
+            "[logout] existing login window current url={}",
+            safe_url_for_log(&url)
+        ),
+        Err(error) => {
+            log::warn!("[logout] existing login window current url=<unavailable: {error}>")
+        }
+    }
     if let Err(error) = set_login_window_external_mode(&login) {
         set_auth_state(window.app_handle(), AUTHENTICATED);
         return Err(format!("외부 인증 창 모드 설정에 실패했습니다: {error}"));
-    }
-    if let Err(error) = login
-        .unminimize()
-        .and_then(|_| login.show())
-        .and_then(|_| login.set_focus())
-    {
-        set_auth_state(window.app_handle(), AUTHENTICATED);
-        log::error!("[logout] login window preparation failed; logout can be retried: {error}");
-        return Err(error.to_string());
     }
     log::info!("[logout] cloudflare access logout");
     login
@@ -1182,6 +1256,11 @@ fn show_or_create_login_window(app: &AppHandle, origin: &str) -> tauri::Result<(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let build_start_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    eprintln!("[{build_start_ms}] MAIN_BUILD_START source=tauri.conf");
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             notify_login_page_ready,
@@ -1215,6 +1294,24 @@ pub fn run() {
 
             log::info!("MONA-HUB startup");
 
+            // `main` is config-generated, so Tauri has completed its native/WebView
+            // build before setup is entered. MAIN_BUILD_START is emitted immediately
+            // before Tauri run; this is the first post-build callback.
+            if let Some(main) = app.get_webview_window("main") {
+                log::info!("MAIN_BUILD_DONE source=tauri.conf");
+                log::info!("MAIN_HWND_READY");
+                log::info!(
+                    "MAIN_VISIBLE_{}",
+                    if main.is_visible().unwrap_or(false) {
+                        "TRUE"
+                    } else {
+                        "FALSE"
+                    }
+                );
+                #[cfg(target_os = "windows")]
+                appbar::log_window_state(&main, "MAIN_HWND_READY_STATE");
+            }
+
             // WebView IPC command 안에서 새 WebView를 동기 생성하면 Windows에서
             // 생성 완료를 기다리며 교착될 수 있으므로 hidden popup을 setup에서 준비한다.
             let popup = profile_popup(app.handle())?;
@@ -1230,8 +1327,13 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             {
                 if let Some(window) = app.get_webview_window("main") {
-                    if let Err(error) = appbar::register(&window) {
-                        eprintln!("AppBar 등록 실패: {error}");
+                    match appbar::register_and_show(&window) {
+                        Ok(()) => {
+                            appbar::log_window_state(&window, "MAIN_NATIVE_SHOW_DONE");
+                        }
+                        Err(error) => {
+                            eprintln!("AppBar 등록 실패: {error}");
+                        }
                     }
                 } else {
                     eprintln!("main 창을 찾을 수 없습니다.");
