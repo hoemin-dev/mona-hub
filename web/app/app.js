@@ -1,4 +1,5 @@
 const mockApps = Object.freeze([
+  Object.freeze({ id: "pdfys", name: "PDFYS", shortLabel: "PDFYS", icon: "./icons/admin.svg", url: "https://pdfys.pages.dev/" }),
   Object.freeze({ id: "radar", name: "MonaRadar", shortLabel: "Radar", icon: "./icons/radar.svg", url: "#radar" }),
   Object.freeze({ id: "flex", name: "MonaFlex", shortLabel: "Flex", icon: "./icons/flex.svg", url: "#flex" }),
   Object.freeze({ id: "admin", name: "MonaHub Admin", shortLabel: "Admin", icon: "./icons/admin.svg", url: "#admin" })
@@ -88,7 +89,9 @@ mockApps.forEach(app => {
   label.textContent = app.shortLabel;
 
   button.append(icon, label);
-  button.addEventListener("click", () => selectApp(app, button));
+  button.addEventListener("click", () => app.id === "pdfys"
+    ? window.open("https://pdfys.pages.dev/", "_blank", "noopener,noreferrer")
+    : selectApp(app, button));
   appList.append(button);
 });
 import { AccessAuthProvider } from "../auth/access-auth-provider.js";
