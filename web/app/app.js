@@ -2,7 +2,9 @@ const mockApps = Object.freeze([
   Object.freeze({ id: "pdfys", name: "PDFYS", shortLabel: "PDFYS", icon: "./icons/admin.svg", url: "https://pdfys.pages.dev/" }),
   Object.freeze({ id: "radar", name: "MonaRadar", shortLabel: "Radar", icon: "./icons/radar.svg", url: "#radar" }),
   Object.freeze({ id: "flex", name: "MonaFlex", shortLabel: "Flex", icon: "./icons/flex.svg", url: "#flex" }),
-  Object.freeze({ id: "admin", name: "MonaHub Admin", shortLabel: "Admin", icon: "./icons/admin.svg", url: "#admin" })
+  Object.freeze({ id: "admin", name: "MonaHub Admin", shortLabel: "Admin", icon: "./icons/admin.svg", url: "#admin" }),
+  // TEMPORARY local compatibility harness; not a production application.
+  Object.freeze({ id: "popup-test", name: "Popup Test", shortLabel: "Test", icon: "./icons/admin.svg", url: "http://127.0.0.1:8088/" })
 ]);
 
 const appList = document.getElementById("appList");
@@ -89,13 +91,14 @@ mockApps.forEach(app => {
   label.textContent = app.shortLabel;
 
   button.append(icon, label);
-  button.addEventListener("click", () => app.id === "pdfys"
+  button.addEventListener("click", () => ["pdfys", "popup-test"].includes(app.id)
     ? openWebApp(app)
     : selectApp(app, button));
   appList.append(button);
 });
 
 async function openWebApp(app) {
+  const logTag = app.id === "popup-test" ? "[popup-test]" : "[PDFYS]";
   const context = {
     command: "open_web_app",
     href: window.location.origin + window.location.pathname,
@@ -105,14 +108,14 @@ async function openWebApp(app) {
     url: app.url,
     hasInvoke: typeof invoke === "function"
   };
-  console.info("[PDFYS] click -> openWebApp", context);
+  console.info(`${logTag} click -> openWebApp`, context);
   try {
     if (!invoke) throw new Error("Tauri web app bridge is unavailable");
-    console.info("[PDFYS] invoke requested", context);
+    console.info(`${logTag} invoke requested`, context);
     await invoke("open_web_app", { id: app.id, url: app.url });
-    console.info("[PDFYS] invoke completed");
+    console.info(`${logTag} invoke completed`);
   } catch (error) {
-    console.error("[PDFYS] invoke failed", error, context);
+    console.error(`${logTag} invoke failed`, error, context);
   }
 }
 

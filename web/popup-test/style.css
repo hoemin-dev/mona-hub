@@ -1,0 +1,15 @@
+:root { color-scheme: light; font-family: system-ui, sans-serif; color: #173042; background: #edf2f4; }
+body { margin: 0; }
+main { max-width: 1000px; padding: 24px; margin: auto; }
+h1 { margin-top: 0; font-size: 28px; } h2 { font-size: 18px; margin-top: 0; }
+small { font-size: 11px; color: #536575; white-space: nowrap; }
+section { background: white; border: 1px solid #cad5dd; border-radius: 8px; padding: 18px; margin: 16px 0; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+button, select { font: inherit; border: 1px solid #627e90; border-radius: 4px; background: #f1f6fa; color: #173042; padding: 9px 12px; cursor: pointer; }
+button:hover { background: #dcecf5; } :focus-visible { outline: 3px solid #007c91; outline-offset: 3px; }
+a { color: #00667c; } label { display: block; margin: 12px 0; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.6; }
+#log { background: #122833; color: #e1f2f5; padding: 12px; min-height: 140px; max-height: 420px; overflow-y: auto; }
+#drop-zone { border: 2px dashed #5b7c90; padding: 28px 12px; border-radius: 6px; }
+#drop-zone.over { background: #d8f3eb; } #drag-source { cursor: grab; padding: 10px; background: #eef4f6; }
+@media (max-width: 540px) { main { padding: 12px; } section { padding: 12px; } button { width: 100%; } }

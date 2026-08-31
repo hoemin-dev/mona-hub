@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Popup Test · child</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body data-popup="true">
+  <main>
+    <h1>Popup child <small>LOCAL HARNESS</small></h1>
+    <section><h2>환경 / opener</h2><pre id="environment"></pre><p id="status" role="status"></p></section>
+    <section><h2>Nested popup</h2><div id="popup-controls" class="controls"></div>
+      <a id="blank-link" href="popup.html" target="_blank">실제 target="_blank"</a>
+      <label>자식 창 선택 <select id="children"><option value="">아직 없음</option></select></label>
+      <div id="message-controls" class="controls"></div>
+    </section>
+    <section><h2>파일 / drop</h2><input id="file-input" type="file" multiple aria-label="파일 선택">
+      <p id="drag-source" draggable="true">테스트 드래그 텍스트</p><div id="drop-zone" tabindex="0">Drop here</div>
+      <p><a id="download" href="sample.txt" download="popup-test-sample.txt">일반 파일 다운로드</a></p>
+      <button id="blob-download" type="button">Blob 다운로드</button>
+    </section>
+    <section><h2>로그</h2><button id="clear" type="button">지우기</button><pre id="log" role="log" aria-live="polite"></pre></section>
+  </main>
+</body>
+</html>
