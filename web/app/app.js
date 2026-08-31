@@ -96,11 +96,23 @@ mockApps.forEach(app => {
 });
 
 async function openWebApp(app) {
+  const context = {
+    command: "open_web_app",
+    href: window.location.origin + window.location.pathname,
+    hasQuery: Boolean(window.location.search),
+    hasFragment: Boolean(window.location.hash),
+    id: app.id,
+    url: app.url,
+    hasInvoke: typeof invoke === "function"
+  };
+  console.info("[PDFYS] click -> openWebApp", context);
   try {
     if (!invoke) throw new Error("Tauri web app bridge is unavailable");
+    console.info("[PDFYS] invoke requested", context);
     await invoke("open_web_app", { id: app.id, url: app.url });
+    console.info("[PDFYS] invoke completed");
   } catch (error) {
-    console.error("[PDFYS] 창 열기 실패:", error);
+    console.error("[PDFYS] invoke failed", error, context);
   }
 }
 

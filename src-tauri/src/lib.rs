@@ -213,25 +213,34 @@ fn validate_web_app_request(label: &str, caller: &Url, id: &str, url: &str) -> R
 
 #[tauri::command]
 async fn open_web_app(window: WebviewWindow, id: String, url: String) -> Result<(), String> {
+    log::info!("[PDFYS] command entered");
     // Async commands run off the Windows UI thread. Serialize lookup + build, not just clicks.
-    let _guard = PDFYS_WINDOW_LOCK.lock().map_err(|error| error.to_string())?;
-    validate_web_app_request(
-        window.label(),
-        &window.url().map_err(|error| error.to_string())?,
-        &id,
-        &url,
-    )?;
-    if AUTH_FLOW_STATE.load(Ordering::Acquire) != AUTHENTICATED {
+    log::info!("[PDFYS] window lock waiting");
+    let _guard = PDFYS_WINDOW_LOCK.lock().map_err(|error| pdfys_error("window lock", error))?;
+    let caller = window.url().map_err(|error| pdfys_error("caller URL", error))?;
+    log::info!("[PDFYS] caller label={} url={} query={} fragment={}",
+        window.label(), safe_url_for_log(&caller), caller.query().is_some(), caller.fragment().is_some());
+    let state = AUTH_FLOW_STATE.load(Ordering::Acquire);
+    log::info!("[PDFYS] auth state={} ({})", state, auth_state_name(state));
+    log::info!("[PDFYS] validation start id={id:?} target_matches={}", url == PDFYS_URL);
+    validate_web_app_request(window.label(), &caller, &id, &url)
+        .map_err(|error| pdfys_error("caller/id/url validation", error))?;
+    log::info!("[PDFYS] caller/id/url validation passed target={PDFYS_URL}");
+    if state != AUTHENTICATED {
+        log::warn!("[PDFYS] auth rejected");
         return Err("PDFYS requires an authenticated session.".into());
     }
     let app = window.app_handle();
     let pdfys = if let Some(existing) = app.get_webview_window(PDFYS_WINDOW_LABEL) {
+        log::info!("[PDFYS] existing window lookup found=true");
         existing
     } else {
-        WebviewWindowBuilder::new(
+        log::info!("[PDFYS] existing window lookup found=false");
+        log::info!("[PDFYS] build start");
+        let created = WebviewWindowBuilder::new(
             app,
             PDFYS_WINDOW_LABEL,
-            WebviewUrl::External(Url::parse(&url).map_err(|error| error.to_string())?),
+            WebviewUrl::External(Url::parse(&url).map_err(|error| pdfys_error("target parse", error))?),
         )
         .title("PDFYS")
         .inner_size(1200.0, 800.0)
@@ -241,23 +250,65 @@ async fn open_web_app(window: WebviewWindow, id: String, url: String) -> Result<
         .always_on_top(false)
         .visible(false)
         .build()
-        .map_err(|error| error.to_string())?
+        .map_err(|error| pdfys_error("build", error))?;
+        log::info!("[PDFYS] build success");
+        created
     };
     // Logout may finish while WebView creation is in progress; do not leave a late window open.
     if AUTH_FLOW_STATE.load(Ordering::Acquire) != AUTHENTICATED {
-        pdfys.destroy().map_err(|error| error.to_string())?;
+        log::warn!("[PDFYS] session ended after lookup/build; destroying window");
+        pdfys.destroy().map_err(|error| pdfys_error("destroy", error))?;
         return Err("PDFYS opening cancelled because the session ended.".into());
     }
-    if pdfys.is_minimized().map_err(|error| error.to_string())? {
-        pdfys.unminimize().map_err(|error| error.to_string())?;
+    let minimized = pdfys.is_minimized().map_err(|error| pdfys_error("is_minimized", error))?;
+    log::info!("[PDFYS] restore minimized={minimized}");
+    if minimized {
+        pdfys.unminimize().map_err(|error| pdfys_error("restore", error))?;
+        log::info!("[PDFYS] restore success");
     }
-    pdfys.show().map_err(|error| error.to_string())?;
-    pdfys.set_focus().map_err(|error| error.to_string())
+    pdfys.show().map_err(|error| pdfys_error("show", error))?;
+    log::info!("[PDFYS] show success");
+    pdfys.set_focus().map_err(|error| pdfys_error("focus", error))?;
+    log::info!("[PDFYS] focus success; command completed");
+    Ok(())
+}
+
+fn pdfys_error(stage: &str, error: impl std::fmt::Display) -> String {
+    let message = format!("[PDFYS] {stage} failed: {error}");
+    log::error!("{message}");
+    message
 }
 
 #[cfg(test)]
 mod pdfys_tests {
     use super::*;
+
+    #[test]
+    fn capability_accepts_ipc_origin_but_command_still_requires_app_page() {
+        use tauri::utils::acl::RemoteUrlPattern;
+
+        let origin = Url::parse(APP_BASE_URL).unwrap();
+        let old_pattern: RemoteUrlPattern = format!("{APP_BASE_URL}/app/").parse().unwrap();
+        assert!(!old_pattern.test(&origin), "custom-protocol IPC loses the page path");
+
+        let capability: serde_json::Value = serde_json::from_str(include_str!(
+            "../capabilities/pdfys-launcher.json"
+        )).unwrap();
+        assert_eq!(capability["windows"], serde_json::json!(["main"]));
+        assert_eq!(capability["local"], false);
+        assert_eq!(capability["permissions"], serde_json::json!(["allow-open-web-app"]));
+        let patterns: Vec<RemoteUrlPattern> = capability["remote"]["urls"].as_array().unwrap()
+            .iter().map(|value| value.as_str().unwrap().parse().unwrap()).collect();
+        for source in [APP_BASE_URL, "https://mona-hub.pages.dev/app/", "https://mona-hub.pages.dev/app"] {
+            assert!(patterns.iter().any(|pattern| pattern.test(&Url::parse(source).unwrap())));
+        }
+        for source in ["https://mona-hub.pages.dev/app", "https://mona-hub.pages.dev/prelogin/", APP_BASE_URL] {
+            assert!(validate_web_app_request("main", &Url::parse(source).unwrap(), "pdfys", PDFYS_URL).is_err());
+        }
+        for source in ["http://mona-hub.pages.dev/", "https://mona-hub.pages.dev:444/", "https://mona-hub.pages.dev.evil.example/", PDFYS_URL] {
+            assert!(!patterns.iter().any(|pattern| pattern.test(&Url::parse(source).unwrap())));
+        }
+    }
 
     #[test]
     fn only_exact_pdfys_target_is_allowed() {

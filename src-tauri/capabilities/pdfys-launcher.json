@@ -1,11 +1,11 @@
 {
   "$schema": "../gen/schemas/remote-schema.json",
   "identifier": "pdfys-launcher",
-  "description": "Allows only the trusted main AppBar page to launch PDFYS.",
+  "description": "Allows main IPC from the trusted origin; open_web_app enforces the actual /app/ URL and authentication. Custom-protocol IPC supplies an Origin without a page path.",
   "local": false,
   "windows": ["main"],
   "remote": {
-    "urls": ["https://mona-hub.pages.dev/app/"]
+    "urls": ["https://mona-hub.pages.dev/*"]
   },
   "permissions": ["allow-open-web-app"]
 }
