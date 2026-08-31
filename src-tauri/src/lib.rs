@@ -243,6 +243,7 @@ async fn open_web_app(window: WebviewWindow, id: String, url: String) -> Result<
             WebviewUrl::External(Url::parse(&url).map_err(|error| pdfys_error("target parse", error))?),
         )
         .title("PDFYS")
+        .disable_drag_drop_handler()
         .inner_size(1200.0, 800.0)
         .resizable(true)
         .decorations(true)
