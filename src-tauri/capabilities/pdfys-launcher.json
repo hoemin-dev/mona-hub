@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/remote-schema.json",
+  "identifier": "pdfys-launcher",
+  "description": "Allows only the trusted main AppBar page to launch PDFYS.",
+  "local": false,
+  "windows": ["main"],
+  "remote": {
+    "urls": ["https://mona-hub.pages.dev/app/"]
+  },
+  "permissions": ["allow-open-web-app"]
+}

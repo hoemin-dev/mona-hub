@@ -90,10 +90,20 @@ mockApps.forEach(app => {
 
   button.append(icon, label);
   button.addEventListener("click", () => app.id === "pdfys"
-    ? window.open("https://pdfys.pages.dev/", "_blank", "noopener,noreferrer")
+    ? openWebApp(app)
     : selectApp(app, button));
   appList.append(button);
 });
+
+async function openWebApp(app) {
+  try {
+    if (!invoke) throw new Error("Tauri web app bridge is unavailable");
+    await invoke("open_web_app", { id: app.id, url: app.url });
+  } catch (error) {
+    console.error("[PDFYS] 창 열기 실패:", error);
+  }
+}
+
 import { AccessAuthProvider } from "../auth/access-auth-provider.js";
 import { AuthController } from "../auth/auth-controller.js";
 import { authConfig } from "./config/environment.js";

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-open-web-app"
+description = "Enables the open_web_app command without any pre-configured scope."
+commands.allow = ["open_web_app"]
+
+[[permission]]
+identifier = "deny-open-web-app"
+description = "Denies the open_web_app command without any pre-configured scope."
+commands.deny = ["open_web_app"]

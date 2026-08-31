@@ -19,6 +19,9 @@ mod appbar;
 
 const LOGIN_WINDOW_LABEL: &str = "login";
 const PROFILE_POPUP_LABEL: &str = "profile-popup";
+const PDFYS_WINDOW_LABEL: &str = "webapp-pdfys";
+const PDFYS_URL: &str = "https://pdfys.pages.dev/";
+static PDFYS_WINDOW_LOCK: Mutex<()> = Mutex::new(());
 const APP_BASE_URL: &str = "https://mona-hub.pages.dev";
 const ENTRA_TENANT_ID: &str = "40248705-eb98-485c-b761-ac9fd07e2baa";
 const ACCESS_APP_PATH: &str = "/app/";
@@ -130,6 +133,11 @@ fn complete_logout(app: &AppHandle) {
     // operation fails.
     set_auth_state(app, AUTH_IDLE);
     log::info!("[logout] clearing authenticated app state");
+    if let Some(pdfys) = app.get_webview_window(PDFYS_WINDOW_LABEL) {
+        if let Err(error) = pdfys.destroy() {
+            log::error!("[logout] failed to destroy PDFYS window: {error}");
+        }
+    }
     if let Some(popup) = app.get_webview_window(PROFILE_POPUP_LABEL) {
         if let Err(error) = popup.hide() {
             log::error!("[logout] failed to hide profile popup: {error}");
@@ -184,6 +192,113 @@ fn safe_url_for_log(url: &Url) -> String {
         (Some(host), path) => format!("{}://{host}{path}", url.scheme()),
         (None, path) if !path.is_empty() => format!("{}:{path}", url.scheme()),
         _ => url.scheme().to_string(),
+    }
+}
+
+fn validate_web_app_request(label: &str, caller: &Url, id: &str, url: &str) -> Result<(), String> {
+    if label != "main"
+        || caller.origin().ascii_serialization() != APP_BASE_URL
+        || caller.path() != ACCESS_APP_PATH
+        || !caller.username().is_empty()
+        || caller.password().is_some()
+    {
+        return Err("PDFYS can only be opened from the trusted main /app/ page.".into());
+    }
+    // Compare the original string before parsing: aliases, queries and fragments are rejected.
+    if id != "pdfys" || url != PDFYS_URL {
+        return Err("Only the configured PDFYS app and URL are allowed.".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn open_web_app(window: WebviewWindow, id: String, url: String) -> Result<(), String> {
+    // Async commands run off the Windows UI thread. Serialize lookup + build, not just clicks.
+    let _guard = PDFYS_WINDOW_LOCK.lock().map_err(|error| error.to_string())?;
+    validate_web_app_request(
+        window.label(),
+        &window.url().map_err(|error| error.to_string())?,
+        &id,
+        &url,
+    )?;
+    if AUTH_FLOW_STATE.load(Ordering::Acquire) != AUTHENTICATED {
+        return Err("PDFYS requires an authenticated session.".into());
+    }
+    let app = window.app_handle();
+    let pdfys = if let Some(existing) = app.get_webview_window(PDFYS_WINDOW_LABEL) {
+        existing
+    } else {
+        WebviewWindowBuilder::new(
+            app,
+            PDFYS_WINDOW_LABEL,
+            WebviewUrl::External(Url::parse(&url).map_err(|error| error.to_string())?),
+        )
+        .title("PDFYS")
+        .inner_size(1200.0, 800.0)
+        .resizable(true)
+        .decorations(true)
+        .skip_taskbar(false)
+        .always_on_top(false)
+        .visible(false)
+        .build()
+        .map_err(|error| error.to_string())?
+    };
+    // Logout may finish while WebView creation is in progress; do not leave a late window open.
+    if AUTH_FLOW_STATE.load(Ordering::Acquire) != AUTHENTICATED {
+        pdfys.destroy().map_err(|error| error.to_string())?;
+        return Err("PDFYS opening cancelled because the session ended.".into());
+    }
+    if pdfys.is_minimized().map_err(|error| error.to_string())? {
+        pdfys.unminimize().map_err(|error| error.to_string())?;
+    }
+    pdfys.show().map_err(|error| error.to_string())?;
+    pdfys.set_focus().map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod pdfys_tests {
+    use super::*;
+
+    #[test]
+    fn only_exact_pdfys_target_is_allowed() {
+        let caller = Url::parse("https://mona-hub.pages.dev/app/").unwrap();
+        assert!(validate_web_app_request("main", &caller, "pdfys", PDFYS_URL).is_ok());
+        for id in ["radar", "flex", "admin", "PDFYS", ""] {
+            assert!(validate_web_app_request("main", &caller, id, PDFYS_URL).is_err());
+        }
+        for target in [
+            "https://pdfys.pages.dev",
+            "http://pdfys.pages.dev/",
+            "https://pdfys.pages.dev/?query=1",
+            "https://pdfys.pages.dev/#fragment",
+            "https://pdfys.pages.dev/other",
+            "https://pdfys.pages.dev.evil.example/",
+            "https://pdfys.pages.dev@evil.example/",
+            "https://example.com/",
+        ] {
+            assert!(validate_web_app_request("main", &caller, "pdfys", target).is_err());
+        }
+    }
+
+    #[test]
+    fn only_trusted_main_app_caller_is_allowed() {
+        let caller = Url::parse("https://mona-hub.pages.dev/app/").unwrap();
+        for label in ["webapp-pdfys", "login", "profile-popup", "help"] {
+            assert!(validate_web_app_request(label, &caller, "pdfys", PDFYS_URL).is_err());
+        }
+        for source in [
+            "https://mona-hub.pages.dev/prelogin/",
+            "https://mona-hub.pages.dev/app/other",
+            "http://mona-hub.pages.dev/app/",
+            "https://mona-hub.pages.dev:444/app/",
+            "https://mona-hub.pages.dev.evil.example/app/",
+            "https://user@mona-hub.pages.dev/app/",
+            "https://pdfys.pages.dev/",
+            "http://localhost:1420/app/",
+        ] {
+            let source = Url::parse(source).unwrap();
+            assert!(validate_web_app_request("main", &source, "pdfys", PDFYS_URL).is_err());
+        }
     }
 }
 
@@ -1273,7 +1388,8 @@ pub fn run() {
             toggle_profile_popup,
             hide_profile_popup,
             confirm_access_logout,
-            begin_access_logout
+            begin_access_logout,
+            open_web_app
         ])
         .on_page_load(handle_page_load)
         .setup(|app| {

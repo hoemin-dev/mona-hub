@@ -14,6 +14,7 @@ fn main() {
                     "hide_profile_popup",
                     "confirm_access_logout",
                     "begin_access_logout",
+                    "open_web_app",
                 ]),
         ),
     )
