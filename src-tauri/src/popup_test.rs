@@ -1,4 +1,6 @@
 //! Temporary local harness only. Never attach capabilities to these labels.
+#[cfg(target_os = "windows")]
+use std::sync::{atomic::AtomicBool, Arc};
 use std::{
     collections::HashSet,
     sync::{
@@ -16,6 +18,76 @@ pub const LABEL: &str = "webapp-popup-test";
 const CROSS_URL: &str = "https://example.com/";
 static NEXT: AtomicU64 = AtomicU64::new(1);
 static REGISTRY: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+#[cfg(target_os = "windows")]
+fn attach_window_close_requested(window: &tauri::WebviewWindow<Wry>) {
+    use webview2_com::WindowCloseRequestedEventHandler;
+
+    let app = window.app_handle().clone();
+    let label = window.label().to_owned();
+    debug_assert!(label.starts_with("popup-test-popup-"));
+    let close_dispatched = Arc::new(AtomicBool::new(false));
+
+    let hook_label = label.clone();
+    if let Err(error) = window.with_webview(move |platform_webview| {
+        let webview = match unsafe { platform_webview.controller().CoreWebView2() } {
+            Ok(webview) => webview,
+            Err(error) => {
+                log::error!(
+                    "[popup-test] close adapter label={} install=false reason=core-webview2 error={error}",
+                    hook_label
+                );
+                return;
+            }
+        };
+        let callback_label = hook_label.clone();
+        let callback_app = app.clone();
+        let callback_guard = close_dispatched.clone();
+        let handler = WindowCloseRequestedEventHandler::create(Box::new(move |_, _| {
+            if callback_guard.swap(true, Ordering::AcqRel) {
+                return Ok(());
+            }
+            log::info!(
+                "[popup-test] webview close requested label={} source=webview2",
+                callback_label
+            );
+            let dispatch_app = callback_app.clone();
+            let dispatch_label = callback_label.clone();
+            if let Err(error) = callback_app.run_on_main_thread(move || {
+                let Some(popup) = dispatch_app.get_webview_window(&dispatch_label) else {
+                    return;
+                };
+                if let Err(error) = popup.close() {
+                    log::warn!(
+                        "[popup-test] webview close ignored label={} reason=tauri-close-failed error={error}",
+                        dispatch_label
+                    );
+                }
+            }) {
+                log::warn!(
+                    "[popup-test] webview close ignored label={} reason=dispatch-failed error={error}",
+                    callback_label
+                );
+            }
+            Ok(())
+        }));
+        let mut token = 0;
+        if let Err(error) = unsafe { webview.add_WindowCloseRequested(&handler, &mut token) } {
+            log::error!(
+                "[popup-test] close adapter label={} install=false reason=event-hook error={error}",
+                hook_label
+            );
+        }
+    }) {
+        log::error!(
+            "[popup-test] close adapter label={} install=false reason=webview-dispatch error={error}",
+            label
+        );
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn attach_window_close_requested(_: &tauri::WebviewWindow<Wry>) {}
 
 fn registry() -> &'static Mutex<HashSet<String>> {
     REGISTRY.get_or_init(|| Mutex::new(HashSet::new()))
@@ -133,6 +205,7 @@ pub fn configure<'a>(
                 }
                 _ => {}
             });
+            attach_window_close_requested(&window);
             log::info!("[popup-test] popup request parent={} popup={} nested={} url={} decision=Create popup-created=true registry_inserted=true",
                 parent, label, nested, safe_url(&url));
             NewWindowResponse::Create { window }

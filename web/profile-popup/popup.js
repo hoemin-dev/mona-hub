@@ -39,7 +39,12 @@ cancelButton.addEventListener("click", () => void invoke?.("hide_profile_popup")
 confirmButton.addEventListener("click", async () => {
   confirmButton.disabled = true;
   try {
-    await invoke?.("confirm_access_logout");
+    if (invoke) {
+      await invoke("confirm_access_logout");
+      return;
+    }
+
+    window.location.assign(new URL("/cdn-cgi/access/logout", window.location.origin));
   } catch (error) {
     confirmButton.disabled = false;
     console.error("로그아웃 확인 전달 실패:", error);

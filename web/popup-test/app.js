@@ -29,6 +29,8 @@ function log(kind, event, detail = "") {
   console.info(line);
 }
 
+log("EVENT", "app.js version=print-test-1");
+
 // Fixed diagnostic vocabulary only; Rust observes document title, no Tauri IPC.
 // Title events may coalesce: screen log is the detailed source of truth.
 function signal(event) { document.title = `popup-test:${event}:${++signalSequence}`; }
@@ -177,6 +179,17 @@ $("blob-download").addEventListener("click", () => {
   setTimeout(() => URL.revokeObjectURL(url), 30000);
   log("WAIT", "blob download 요청", "저장된 파일 / Rust download finished를 확인"); signal("download");
 });
+const windowPrintButton = $("window-print");
+log("EVENT", "window.print button lookup", `found=${!!windowPrintButton}`);
+if (windowPrintButton) {
+  windowPrintButton.addEventListener("click", () => {
+    log("EVENT", "window.print click received");
+    log("EVENT", "window.print requested");
+    window.print();
+    log("EVENT", "window.print returned");
+  });
+  log("EVENT", "window.print listener registered");
+}
 $("clear").addEventListener("click", () => { $("log").textContent = ""; });
 $("environment").textContent = `URL: ${safeUrl(location.href)}\norigin: ${location.origin}\nuserAgent: ${navigator.userAgent}\nrole: ${isPopup ? "popup / nested parent" : "root"}\nopener: ${!!window.opener}\nNative IPC: 사용하지 않음`;
 log("EVENT", "ready", `opener=${!!window.opener}; native WebView 종료 이벤트는 공개 Tauri API에서 직접 관찰 불가`);

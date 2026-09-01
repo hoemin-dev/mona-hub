@@ -6,7 +6,7 @@
   <meta name="referrer" content="no-referrer">
   <title>Popup Test · MonaHub local harness</title>
   <link rel="stylesheet" href="style.css">
-  <script src="app.js" defer></script>
+  <script src="app.js?v=print-test-1" defer></script>
 </head>
 <body>
   <main>
@@ -25,6 +25,10 @@
       <div id="drop-zone" tabindex="0">파일 또는 위 텍스트를 여기에 놓으세요 (업로드·파일 내용 읽기 없음)</div>
       <p><a id="download" href="sample.txt" download="popup-test-sample.txt">일반 파일 다운로드</a></p>
       <button id="blob-download" type="button">Blob 다운로드</button>
+    </section>
+    <section><h2>인쇄</h2>
+      <button id="window-print" type="button">window.print()</button>
+      <p>Windows 인쇄 UI 표시와 실제 인쇄 성공 여부를 수동으로 확인하세요.</p>
     </section>
     <section><h2>이벤트 로그</h2><p>URL query/fragment, 메시지 원문, 파일 이름·내용은 기록하지 않습니다.</p>
       <button id="clear" type="button">로그 지우기</button><pre id="log" role="log" aria-live="polite"></pre>
