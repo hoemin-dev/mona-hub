@@ -21,6 +21,36 @@ const authController = new AuthController(
   }
 );
 
+async function syncAcDcIdentity() {
+  console.info("[AC/DC] sync started");
+  try {
+    await authController.refresh();
+    const identity = await authController.getIdentity();
+    const tenantId = identity?.oidc_fields?.tid;
+    const entraOid = identity?.oidc_fields?.oid;
+    const name = identity?.oidc_fields?.name;
+    if (![tenantId, entraOid, name].every(value => typeof value === "string" && value.trim())) {
+      console.warn("[AC/DC] required identity claims are unavailable; sync skipped");
+      return;
+    }
+    if (!invoke) {
+      console.warn("[AC/DC] Tauri bridge is unavailable; sync skipped");
+      return;
+    }
+    console.info("[AC/DC] required identity claims acquired");
+    const personId = await invoke("sync_acdc_identity", {
+      tenantId: tenantId.trim(),
+      entraOid: entraOid.trim(),
+      name: name.trim()
+    });
+    console.info("[AC/DC] identity sync succeeded", { personId });
+  } catch (error) {
+    console.warn("[AC/DC] identity sync failed; MonaHub authentication is unchanged", error);
+  }
+}
+
+void syncAcDcIdentity();
+
 async function toggleProfileMenu() {
   console.info("[profile-popup] app profile clicked");
   if (!invoke) {

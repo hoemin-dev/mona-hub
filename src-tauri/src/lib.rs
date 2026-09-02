@@ -14,6 +14,10 @@ use tauri::{
 };
 use tauri_plugin_log::{Target, TargetKind};
 
+const ACDC_LOCAL_ME_URL: &str = "http://127.0.0.1:8787/api/me";
+const ACDC_BRIDGE_TOKEN_ENV: &str = "AC_DC_LOCAL_BRIDGE_TOKEN";
+const ACDC_REQUEST_TIMEOUT_SECS: u64 = 3;
+
 // TEMPORARY local WebView compatibility harness, with no native IPC capability.
 mod popup_test;
 
@@ -47,6 +51,111 @@ static LOGIN_START_URL: OnceLock<Mutex<Option<Url>>> = OnceLock::new();
 static PROFILE_POPUP_BLURRED_AT: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
 static MAIN_FIRST_NAV_STARTED_LOGGED: AtomicBool = AtomicBool::new(false);
 static MAIN_FIRST_NAV_FINISHED_LOGGED: AtomicBool = AtomicBool::new(false);
+
+#[derive(serde::Serialize)]
+struct AcDcIdentityRequest<'a> {
+    tid: &'a str,
+    oid: &'a str,
+    name: &'a str,
+}
+
+#[derive(serde::Deserialize)]
+struct AcDcIdentityResponse {
+    person_id: String,
+}
+
+fn is_valid_person_id(value: &str) -> bool {
+    let Some(suffix) = value.strip_prefix("PER-") else {
+        return false;
+    };
+    suffix.len() == 8
+        && suffix
+            .bytes()
+            .all(|byte| b"23456789ABCDEFGHJKMNPQRSTVWXYZ".contains(&byte))
+}
+
+#[cfg(test)]
+mod acdc_tests {
+    use super::is_valid_person_id;
+
+    #[test]
+    fn accepts_only_acdc_person_id_format() {
+        assert!(is_valid_person_id("PER-ABCDEFGH"));
+        assert!(!is_valid_person_id("PER-ABCDEF01"));
+        assert!(!is_valid_person_id("PER-abcdefgH"));
+        assert!(!is_valid_person_id("PER-ABCDEFG"));
+    }
+}
+
+#[tauri::command]
+async fn sync_acdc_identity(
+    window: WebviewWindow,
+    tenant_id: String,
+    entra_oid: String,
+    name: String,
+) -> Result<String, String> {
+    let url = window
+        .url()
+        .map_err(|error| format!("AC/DC window URL unavailable: {error}"))?;
+    if window.label() != "main"
+        || url.origin().ascii_serialization() != APP_BASE_URL
+        || !url.path().starts_with(ACCESS_APP_PATH)
+    {
+        return Err("AC/DC sync is only available to the authenticated main app".into());
+    }
+
+    let bridge_token = std::env::var(ACDC_BRIDGE_TOKEN_ENV)
+        .map_err(|_| format!("AC/DC configuration error: {ACDC_BRIDGE_TOKEN_ENV} is not set"))?;
+    if bridge_token.len() < 32 {
+        return Err(format!(
+            "AC/DC configuration error: {ACDC_BRIDGE_TOKEN_ENV} is invalid"
+        ));
+    }
+
+    log::info!("[AC/DC] Local request started");
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(ACDC_REQUEST_TIMEOUT_SECS))
+        .build()
+        .map_err(|error| format!("AC/DC client error: {error}"))?;
+    let response = client
+        .post(ACDC_LOCAL_ME_URL)
+        .header("x-mona-local-bridge-token", bridge_token)
+        .json(&AcDcIdentityRequest {
+            tid: &tenant_id,
+            oid: &entra_oid,
+            name: &name,
+        })
+        .send()
+        .await
+        .map_err(|error| {
+            if error.is_timeout() {
+                "AC/DC request timed out".to_string()
+            } else {
+                format!("AC/DC network error: {error}")
+            }
+        })?;
+
+    let status = response.status();
+    if status.is_client_error() {
+        return Err(format!("AC/DC HTTP client error: {status}"));
+    }
+    if status.is_server_error() {
+        return Err(format!("AC/DC HTTP server error: {status}"));
+    }
+    if !status.is_success() {
+        return Err(format!("AC/DC unexpected HTTP status: {status}"));
+    }
+
+    let body: AcDcIdentityResponse = response
+        .json()
+        .await
+        .map_err(|error| format!("AC/DC invalid JSON response: {error}"))?;
+    if !is_valid_person_id(&body.person_id) {
+        return Err("AC/DC response contains an invalid person_id".into());
+    }
+    log::info!("[AC/DC] Local request succeeded person_id={}", body.person_id);
+    Ok(body.person_id)
+}
 
 struct TrayAuthMenuItem(MenuItem<tauri::Wry>);
 
@@ -1492,7 +1601,8 @@ pub fn run() {
             hide_profile_popup,
             confirm_access_logout,
             begin_access_logout,
-            open_web_app
+            open_web_app,
+            sync_acdc_identity
         ])
         .on_page_load(handle_page_load)
         .setup(|app| {

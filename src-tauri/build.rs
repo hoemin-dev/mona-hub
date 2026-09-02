@@ -15,6 +15,7 @@ fn main() {
                     "confirm_access_logout",
                     "begin_access_logout",
                     "open_web_app",
+                    "sync_acdc_identity",
                 ]),
         ),
     )
