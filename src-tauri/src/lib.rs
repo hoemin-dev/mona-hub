@@ -22,6 +22,7 @@ mod appbar;
 
 const LOGIN_WINDOW_LABEL: &str = "login";
 const PROFILE_POPUP_LABEL: &str = "profile-popup";
+const WEB_APP_WINDOW_LABEL_PREFIX: &str = "webapp-";
 const PDFYS_WINDOW_LABEL: &str = "webapp-pdfys";
 const PDFYS_URL: &str = "https://pdfys.pages.dev/";
 static PDFYS_WINDOW_LOCK: Mutex<()> = Mutex::new(());
@@ -213,6 +214,25 @@ fn validate_web_app_request(label: &str, caller: &Url, id: &str, url: &str) -> R
         return Err("Only the configured PDFYS app and URL are allowed.".into());
     }
     Ok(())
+}
+
+fn is_managed_web_app_window(label: &str) -> bool {
+    label.starts_with(WEB_APP_WINDOW_LABEL_PREFIX)
+}
+
+fn close_managed_web_app_windows(app: &AppHandle) {
+    for (label, window) in app.webview_windows() {
+        if !is_managed_web_app_window(&label) {
+            continue;
+        }
+
+        match window.destroy() {
+            Ok(()) => log::info!("[logout] closed managed app window label={label}"),
+            Err(error) => {
+                log::warn!("[logout] failed to close managed app window label={label}: {error}")
+            }
+        }
+    }
 }
 
 #[tauri::command]
@@ -606,6 +626,16 @@ mod login_url_tests {
         assert!(!is_active_login_url(&url(
             "https://mona-hub.pages.dev/logout-complete/"
         )));
+    }
+
+    #[test]
+    fn managed_app_window_labels_do_not_include_hub_lifecycle_windows() {
+        assert!(is_managed_web_app_window("webapp-pdfys"));
+        assert!(is_managed_web_app_window("webapp-future-app"));
+        assert!(!is_managed_web_app_window("main"));
+        assert!(!is_managed_web_app_window("login"));
+        assert!(!is_managed_web_app_window("profile-popup"));
+        assert!(!is_managed_web_app_window("help"));
     }
 
     #[test]
@@ -1137,6 +1167,10 @@ fn begin_access_logout(window: WebviewWindow) -> Result<(), String> {
             Ordering::Acquire,
         )
         .map_err(|state| format!("로그아웃을 시작할 수 없는 인증 상태입니다: {state}"))?;
+    // App windows are no longer usable as soon as logout is requested. Close them
+    // before any Cloudflare or Entra navigation, without making cleanup a logout
+    // prerequisite.
+    close_managed_web_app_windows(window.app_handle());
     sync_tray_auth_menu(window.app_handle(), AUTH_LOGGING_OUT_CLOUDFLARE);
     let Some(login) = window.app_handle().get_webview_window(LOGIN_WINDOW_LABEL) else {
         set_auth_state(window.app_handle(), AUTHENTICATED);
