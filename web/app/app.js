@@ -10,6 +10,14 @@ const mockApps = Object.freeze([
 const appList = document.getElementById("appList");
 const profileButton = document.getElementById("profileButton");
 const invoke = window.__TAURI__?.core?.invoke;
+async function acdcDiagnostic(event, presence = {}) {
+  if (!invoke) return;
+  try {
+    await invoke("log_acdc_diagnostic", { event, ...presence });
+  } catch (error) {
+    console.warn("[AC/DC-DIAG] file logging failed", error);
+  }
+}
 const authController = new AuthController(
   new AccessAuthProvider({ appUrl: authConfig.appUrl }),
   {
@@ -22,15 +30,31 @@ const authController = new AuthController(
 );
 
 async function syncAcDcIdentity() {
-  console.info("[AC/DC] sync started");
+  console.info("[AC/DC] identity sync entered");
+  await acdcDiagnostic("sync-entered");
+  let diagnosticStage = "get-identity";
   try {
+    console.info("[AC/DC] get-identity request starting");
+    await acdcDiagnostic("get-identity-starting");
     await authController.refresh();
     const identity = await authController.getIdentity();
     const tenantId = identity?.oidc_fields?.tid;
     const entraOid = identity?.oidc_fields?.oid;
     const name = identity?.oidc_fields?.name;
+    const presence = {
+      tidPresent: typeof tenantId === "string" && Boolean(tenantId.trim()),
+      oidPresent: typeof entraOid === "string" && Boolean(entraOid.trim()),
+      namePresent: typeof name === "string" && Boolean(name.trim())
+    };
+    console.info("[AC/DC] get-identity request returned", {
+      tid_present: presence.tidPresent,
+      oid_present: presence.oidPresent,
+      name_present: presence.namePresent
+    });
+    await acdcDiagnostic("identity-returned", presence);
     if (![tenantId, entraOid, name].every(value => typeof value === "string" && value.trim())) {
       console.warn("[AC/DC] required identity claims are unavailable; sync skipped");
+      await acdcDiagnostic("identity-missing");
       return;
     }
     if (!invoke) {
@@ -38,13 +62,18 @@ async function syncAcDcIdentity() {
       return;
     }
     console.info("[AC/DC] required identity claims acquired");
+    console.info("[AC/DC] sync_acdc_identity invoke starting");
+    await acdcDiagnostic("invoke-starting");
+    diagnosticStage = "invoke";
     const personId = await invoke("sync_acdc_identity", {
       tenantId: tenantId.trim(),
       entraOid: entraOid.trim(),
       name: name.trim()
     });
+    await acdcDiagnostic("sync-succeeded");
     console.info("[AC/DC] identity sync succeeded", { personId });
   } catch (error) {
+    await acdcDiagnostic(diagnosticStage === "get-identity" ? "get-identity-failed" : "invoke-failed");
     console.warn("[AC/DC] identity sync failed; MonaHub authentication is unchanged", error);
   }
 }

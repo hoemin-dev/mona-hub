@@ -15,8 +15,10 @@ use tauri::{
 use tauri_plugin_log::{Target, TargetKind};
 
 const ACDC_LOCAL_ME_URL: &str = "http://127.0.0.1:8787/api/me";
-const ACDC_BRIDGE_TOKEN_ENV: &str = "AC_DC_LOCAL_BRIDGE_TOKEN";
 const ACDC_REQUEST_TIMEOUT_SECS: u64 = 3;
+
+mod acdc_diagnostic;
+mod local_bridge_token;
 
 // TEMPORARY local WebView compatibility harness, with no native IPC capability.
 mod popup_test;
@@ -94,29 +96,37 @@ async fn sync_acdc_identity(
     entra_oid: String,
     name: String,
 ) -> Result<String, String> {
+    acdc_diagnostic::record("[AC/DC-DIAG] sync_acdc_identity command entered");
     let url = window
         .url()
-        .map_err(|error| format!("AC/DC window URL unavailable: {error}"))?;
+        .map_err(|error| {
+            acdc_diagnostic::record("[AC/DC-DIAG] command failed stage=window-validation kind=url-unavailable");
+            format!("AC/DC window URL unavailable: {error}")
+        })?;
     if window.label() != "main"
         || url.origin().ascii_serialization() != APP_BASE_URL
         || !url.path().starts_with(ACCESS_APP_PATH)
     {
+        acdc_diagnostic::record("[AC/DC-DIAG] command failed stage=window-validation kind=unauthorized-caller");
         return Err("AC/DC sync is only available to the authenticated main app".into());
     }
 
-    let bridge_token = std::env::var(ACDC_BRIDGE_TOKEN_ENV)
-        .map_err(|_| format!("AC/DC configuration error: {ACDC_BRIDGE_TOKEN_ENV} is not set"))?;
-    if bridge_token.len() < 32 {
-        return Err(format!(
-            "AC/DC configuration error: {ACDC_BRIDGE_TOKEN_ENV} is invalid"
-        ));
-    }
+    let bridge_token = local_bridge_token::load_or_create()
+        .map_err(|error| {
+            acdc_diagnostic::record("[AC/DC-DIAG] command failed stage=bridge-token kind=configuration");
+            format!("AC/DC configuration error: {error}")
+        })?;
 
     log::info!("[AC/DC] Local request started");
+    acdc_diagnostic::record("[AC/DC] Local request started");
+    acdc_diagnostic::record("[AC/DC-DIAG] POST /api/me starting");
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(ACDC_REQUEST_TIMEOUT_SECS))
         .build()
-        .map_err(|error| format!("AC/DC client error: {error}"))?;
+        .map_err(|error| {
+            acdc_diagnostic::record("[AC/DC-DIAG] command failed stage=client-build kind=client");
+            format!("AC/DC client error: {error}")
+        })?;
     let response = client
         .post(ACDC_LOCAL_ME_URL)
         .header("x-mona-local-bridge-token", bridge_token)
@@ -129,32 +139,83 @@ async fn sync_acdc_identity(
         .await
         .map_err(|error| {
             if error.is_timeout() {
+                acdc_diagnostic::record("[AC/DC-DIAG] POST /api/me failed kind=timeout");
                 "AC/DC request timed out".to_string()
             } else {
+                acdc_diagnostic::record("[AC/DC-DIAG] POST /api/me failed kind=network");
                 format!("AC/DC network error: {error}")
             }
         })?;
 
     let status = response.status();
+    acdc_diagnostic::record(&format!("[AC/DC-DIAG] POST /api/me returned http_status={}", status.as_u16()));
     if status.is_client_error() {
+        acdc_diagnostic::record("[AC/DC-DIAG] command failed stage=http-status kind=client-error");
         return Err(format!("AC/DC HTTP client error: {status}"));
     }
     if status.is_server_error() {
+        acdc_diagnostic::record("[AC/DC-DIAG] command failed stage=http-status kind=server-error");
         return Err(format!("AC/DC HTTP server error: {status}"));
     }
     if !status.is_success() {
+        acdc_diagnostic::record("[AC/DC-DIAG] command failed stage=http-status kind=unexpected-status");
         return Err(format!("AC/DC unexpected HTTP status: {status}"));
     }
 
     let body: AcDcIdentityResponse = response
         .json()
         .await
-        .map_err(|error| format!("AC/DC invalid JSON response: {error}"))?;
+        .map_err(|error| {
+            acdc_diagnostic::record("[AC/DC-DIAG] command failed stage=response-json kind=invalid-json");
+            format!("AC/DC invalid JSON response: {error}")
+        })?;
     if !is_valid_person_id(&body.person_id) {
+        acdc_diagnostic::record("[AC/DC-DIAG] POST /api/me succeeded person_id_present=true person_id_valid=false");
         return Err("AC/DC response contains an invalid person_id".into());
     }
+    acdc_diagnostic::record("[AC/DC-DIAG] POST /api/me succeeded person_id_present=true person_id_valid=true");
     log::info!("[AC/DC] Local request succeeded person_id={}", body.person_id);
     Ok(body.person_id)
+}
+
+#[tauri::command]
+fn log_acdc_diagnostic(
+    window: WebviewWindow,
+    event: String,
+    tid_present: Option<bool>,
+    oid_present: Option<bool>,
+    name_present: Option<bool>,
+) -> Result<(), String> {
+    let url = window.url().map_err(|_| "AC/DC diagnostic caller URL unavailable")?;
+    if window.label() != "main"
+        || url.origin().ascii_serialization() != APP_BASE_URL
+        || !url.path().starts_with(ACCESS_APP_PATH)
+    {
+        return Err("AC/DC diagnostic is only available to the authenticated main app".into());
+    }
+
+    let message = match event.as_str() {
+        "sync-entered" => "[AC/DC-DIAG] sync entered".to_string(),
+        "get-identity-starting" => "[AC/DC-DIAG] get-identity starting".to_string(),
+        "identity-returned" => format!(
+            "[AC/DC-DIAG] identity returned tid_present={} oid_present={} name_present={}",
+            tid_present.unwrap_or(false),
+            oid_present.unwrap_or(false),
+            name_present.unwrap_or(false)
+        ),
+        "identity-missing" => "[AC/DC-DIAG] sync stopped stage=identity-validation kind=required-claim-missing".to_string(),
+        "bridge-unavailable" => "[AC/DC-DIAG] sync stopped stage=tauri-bridge kind=unavailable".to_string(),
+        "invoke-starting" => "[AC/DC-DIAG] sync_acdc_identity invoke starting".to_string(),
+        "sync-succeeded" => "[AC/DC-DIAG] sync_acdc_identity invoke succeeded".to_string(),
+        "get-identity-failed" => {
+            "[AC/DC-DIAG] sync failed stage=get-identity kind=exception".to_string()
+        }
+        "invoke-failed" => {
+            "[AC/DC-DIAG] sync failed stage=sync_acdc_identity-invoke kind=exception".to_string()
+        }
+        _ => return Err("Unsupported AC/DC diagnostic event".into()),
+    };
+    acdc_diagnostic::append(&message).map_err(|error| error.to_string())
 }
 
 struct TrayAuthMenuItem(MenuItem<tauri::Wry>);
@@ -1602,10 +1663,13 @@ pub fn run() {
             confirm_access_logout,
             begin_access_logout,
             open_web_app,
+            log_acdc_diagnostic,
             sync_acdc_identity
         ])
         .on_page_load(handle_page_load)
         .setup(|app| {
+            local_bridge_token::initialize()?;
+
             /*
              * 개발 모드 로그
              */
@@ -1622,6 +1686,7 @@ pub fn run() {
             )?;
 
             log::info!("MONA-HUB startup");
+            log::info!("[AC/DC] Local bridge token loaded (value hidden)");
 
             // `main` is config-generated, so Tauri has completed its native/WebView
             // build before setup is entered. MAIN_BUILD_START is emitted immediately

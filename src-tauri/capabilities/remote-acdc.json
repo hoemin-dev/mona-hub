@@ -6,5 +6,8 @@
   "remote": {
     "urls": ["https://mona-hub.pages.dev/app/*"]
   },
-  "permissions": ["allow-sync-acdc-identity"]
+  "permissions": [
+    "allow-sync-acdc-identity",
+    "allow-log-acdc-diagnostic"
+  ]
 }
