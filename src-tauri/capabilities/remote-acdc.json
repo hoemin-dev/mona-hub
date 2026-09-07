@@ -4,7 +4,7 @@
   "description": "Allows AC/DC identity sync only from the authenticated MonaHub main app.",
   "windows": ["main"],
   "remote": {
-    "urls": ["https://mona-hub.pages.dev/app/*"]
+    "urls": ["https://mona-hub.pages.dev"]
   },
   "permissions": [
     "allow-sync-acdc-identity",

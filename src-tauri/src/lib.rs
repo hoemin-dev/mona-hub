@@ -18,6 +18,7 @@ const ACDC_LOCAL_ME_URL: &str = "http://127.0.0.1:8787/api/me";
 const ACDC_REQUEST_TIMEOUT_SECS: u64 = 3;
 
 mod acdc_diagnostic;
+mod acdc_identity;
 mod local_bridge_token;
 
 // TEMPORARY local WebView compatibility harness, with no native IPC capability.
@@ -54,16 +55,11 @@ static PROFILE_POPUP_BLURRED_AT: OnceLock<Mutex<Option<Instant>>> = OnceLock::ne
 static MAIN_FIRST_NAV_STARTED_LOGGED: AtomicBool = AtomicBool::new(false);
 static MAIN_FIRST_NAV_FINISHED_LOGGED: AtomicBool = AtomicBool::new(false);
 
-#[derive(serde::Serialize)]
-struct AcDcIdentityRequest<'a> {
-    tid: &'a str,
-    oid: &'a str,
-    name: &'a str,
-}
-
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 struct AcDcIdentityResponse {
     person_id: String,
+    tenant_id: String,
+    status: String,
 }
 
 fn is_valid_person_id(value: &str) -> bool {
@@ -87,95 +83,115 @@ mod acdc_tests {
         assert!(!is_valid_person_id("PER-abcdefgH"));
         assert!(!is_valid_person_id("PER-ABCDEFG"));
     }
+
+    #[test]
+    fn bridge_transport_handles_response_offline_timeout_and_redirect() {
+        use std::{io::{Read, Write}, net::TcpListener, time::Duration};
+        fn serve(status: &str, body: &str, pause: u64) -> (String, std::thread::JoinHandle<()>) {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let url = format!("http://{}/api/me", listener.local_addr().unwrap());
+            let response = format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+            let thread = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut bytes = [0; 8192];
+                let read = stream.read(&mut bytes).unwrap();
+                let request = String::from_utf8_lossy(&bytes[..read]);
+                assert!(request.starts_with("POST /api/me"));
+                assert!(request.contains("x-mona-local-bridge-token:"));
+                assert!(!request.contains("CF_Authorization"));
+                std::thread::sleep(Duration::from_millis(pause));
+                let _ = stream.write_all(response.as_bytes());
+            });
+            (url, thread)
+        }
+        let identity = super::acdc_identity::Identity { tid: "fixture".into(), oid: "fixture".into(), name: "".into() };
+        for (status, body, expected) in [
+            ("201 Created", r#"{"person_id":"PER-ABCDEFGH","tenant_id":"TEN-TEST","status":"ACTIVE"}"#, None),
+            ("200 OK", r#"{"person_id":"invalid","tenant_id":"TEN-TEST","status":"ACTIVE"}"#, Some("bridge-response-invalid")),
+            ("503 Unavailable", "{}", Some("bridge-http-503")),
+            ("302 Found", "{}", Some("bridge-http-302")),
+        ] {
+            let (url, thread) = serve(status, body, 0);
+            let result = tauri::async_runtime::block_on(super::post_acdc_identity(&url, &identity, "fixture-token", Duration::from_secs(2)));
+            assert_eq!(result.err().as_deref(), expected); thread.join().unwrap();
+        }
+        let (url, thread) = serve("200 OK", "{}", 200);
+        let result = tauri::async_runtime::block_on(super::post_acdc_identity(&url, &identity, "fixture-token", Duration::from_millis(30)));
+        assert_eq!(result.err().as_deref(), Some("bridge-timeout")); thread.join().unwrap();
+        let socket = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/api/me", socket.local_addr().unwrap()); drop(socket);
+        let result = tauri::async_runtime::block_on(super::post_acdc_identity(&url, &identity, "fixture-token", Duration::from_secs(1)));
+        // Windows may silently drop a closed-port connect until our deadline.
+        assert!(matches!(result.err().as_deref(), Some("bridge-offline" | "bridge-timeout")));
+    }
+}
+
+fn access_cookie(window: &WebviewWindow) -> Result<String, String> {
+    if matches!(AUTH_FLOW_STATE.load(Ordering::Acquire), AUTH_LOGGING_OUT_CLOUDFLARE | AUTH_LOGGING_OUT_ENTRA) {
+        return Err("access-session-changed".into());
+    }
+    let url = window.url().map_err(|_| "unauthorized-caller")?;
+    if window.label() != "main" || url.origin().ascii_serialization() != APP_BASE_URL
+        || !url.path().starts_with(ACCESS_APP_PATH) {
+        return Err("unauthorized-caller".into());
+    }
+    // Only the native process handles the HttpOnly credential; never return it to JS.
+    window.cookies_for_url(Url::parse(APP_BASE_URL).unwrap())
+        .map_err(|_| "access-session-unavailable")?.into_iter()
+        .find(|cookie| cookie.name() == "CF_Authorization" && !cookie.value().is_empty())
+        .map(|cookie| cookie.value().to_owned()).ok_or("access-session-unavailable".into())
 }
 
 #[tauri::command]
-async fn sync_acdc_identity(
-    window: WebviewWindow,
-    tenant_id: String,
-    entra_oid: String,
-    name: String,
-) -> Result<String, String> {
-    acdc_diagnostic::record("[AC/DC-DIAG] sync_acdc_identity command entered");
-    let url = window
-        .url()
-        .map_err(|error| {
-            acdc_diagnostic::record("[AC/DC-DIAG] command failed stage=window-validation kind=url-unavailable");
-            format!("AC/DC window URL unavailable: {error}")
-        })?;
-    if window.label() != "main"
-        || url.origin().ascii_serialization() != APP_BASE_URL
-        || !url.path().starts_with(ACCESS_APP_PATH)
-    {
-        acdc_diagnostic::record("[AC/DC-DIAG] command failed stage=window-validation kind=unauthorized-caller");
-        return Err("AC/DC sync is only available to the authenticated main app".into());
+async fn sync_acdc_identity(window: WebviewWindow) -> Result<AcDcIdentityResponse, String> {
+    let result = resolve_acdc_identity(window).await;
+    match &result {
+        Ok(_) => acdc_diagnostic::record("[AC/DC] resolve succeeded person_id_present=true"),
+        Err(code) => acdc_diagnostic::record(&format!("[AC/DC] resolve failed code={code}")),
     }
+    result
+}
 
-    let bridge_token = local_bridge_token::load_or_create()
-        .map_err(|error| {
-            acdc_diagnostic::record("[AC/DC-DIAG] command failed stage=bridge-token kind=configuration");
-            format!("AC/DC configuration error: {error}")
-        })?;
-
-    log::info!("[AC/DC] Local request started");
-    acdc_diagnostic::record("[AC/DC] Local request started");
-    acdc_diagnostic::record("[AC/DC-DIAG] POST /api/me starting");
+async fn resolve_acdc_identity(window: WebviewWindow) -> Result<AcDcIdentityResponse, String> {
+    let credential = access_cookie(&window)?;
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(ACDC_REQUEST_TIMEOUT_SECS))
-        .build()
-        .map_err(|error| {
-            acdc_diagnostic::record("[AC/DC-DIAG] command failed stage=client-build kind=client");
-            format!("AC/DC client error: {error}")
-        })?;
-    let response = client
-        .post(ACDC_LOCAL_ME_URL)
-        .header("x-mona-local-bridge-token", bridge_token)
-        .json(&AcDcIdentityRequest {
-            tid: &tenant_id,
-            oid: &entra_oid,
-            name: &name,
-        })
-        .send()
-        .await
-        .map_err(|error| {
-            if error.is_timeout() {
-                acdc_diagnostic::record("[AC/DC-DIAG] POST /api/me failed kind=timeout");
-                "AC/DC request timed out".to_string()
-            } else {
-                acdc_diagnostic::record("[AC/DC-DIAG] POST /api/me failed kind=network");
-                format!("AC/DC network error: {error}")
-            }
-        })?;
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(10))
+        .build().map_err(|_| "access-client-error")?;
+    // HTTPS to the fixed Access-protected origin validates the native session.
+    // Do not accept browser-supplied tid/oid/name or forward the credential to AC/DC.
+    let response = client.get(format!("{APP_BASE_URL}/cdn-cgi/access/get-identity"))
+        .header("cookie", format!("CF_Authorization={credential}"))
+        .send().await.map_err(|_| "access-identity-unavailable")?;
+    if !response.status().is_success() { return Err("access-session-unavailable".into()); }
+    let value: serde_json::Value = response.json().await.map_err(|_| "identity-invalid")?;
+    let identity = acdc_identity::normalize(&value, ENTRA_TENANT_ID)?;
+    if access_cookie(&window)? != credential { return Err("access-session-changed".into()); }
+    let bridge_token = local_bridge_token::load_or_create().map_err(|_| "bridge-configuration")?;
+    let body = post_acdc_identity(ACDC_LOCAL_ME_URL, &identity, &bridge_token,
+        std::time::Duration::from_secs(ACDC_REQUEST_TIMEOUT_SECS)).await?;
+    if access_cookie(&window)? != credential { return Err("access-session-changed".into()); }
+    Ok(body)
+}
 
+async fn post_acdc_identity(endpoint: &str, identity: &acdc_identity::Identity,
+    bridge_token: &str, timeout: std::time::Duration) -> Result<AcDcIdentityResponse, String> {
+    let local = reqwest::Client::builder().no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(timeout)
+        .build().map_err(|_| "bridge-client-error")?;
+    let response = local.post(endpoint)
+        .header("x-mona-local-bridge-token", bridge_token).json(&identity)
+        .send().await.map_err(|e| if e.is_timeout() { "bridge-timeout" } else { "bridge-offline" })?;
     let status = response.status();
-    acdc_diagnostic::record(&format!("[AC/DC-DIAG] POST /api/me returned http_status={}", status.as_u16()));
-    if status.is_client_error() {
-        acdc_diagnostic::record("[AC/DC-DIAG] command failed stage=http-status kind=client-error");
-        return Err(format!("AC/DC HTTP client error: {status}"));
+    log::info!("[AC/DC] resolve http_status={}", status.as_u16());
+    if !status.is_success() { return Err(format!("bridge-http-{}", status.as_u16())); }
+    let body: AcDcIdentityResponse = response.json().await.map_err(|_| "bridge-response-invalid")?;
+    if !is_valid_person_id(&body.person_id) || body.tenant_id.trim().is_empty() || body.status != "ACTIVE" {
+        return Err("bridge-response-invalid".into());
     }
-    if status.is_server_error() {
-        acdc_diagnostic::record("[AC/DC-DIAG] command failed stage=http-status kind=server-error");
-        return Err(format!("AC/DC HTTP server error: {status}"));
-    }
-    if !status.is_success() {
-        acdc_diagnostic::record("[AC/DC-DIAG] command failed stage=http-status kind=unexpected-status");
-        return Err(format!("AC/DC unexpected HTTP status: {status}"));
-    }
-
-    let body: AcDcIdentityResponse = response
-        .json()
-        .await
-        .map_err(|error| {
-            acdc_diagnostic::record("[AC/DC-DIAG] command failed stage=response-json kind=invalid-json");
-            format!("AC/DC invalid JSON response: {error}")
-        })?;
-    if !is_valid_person_id(&body.person_id) {
-        acdc_diagnostic::record("[AC/DC-DIAG] POST /api/me succeeded person_id_present=true person_id_valid=false");
-        return Err("AC/DC response contains an invalid person_id".into());
-    }
-    acdc_diagnostic::record("[AC/DC-DIAG] POST /api/me succeeded person_id_present=true person_id_valid=true");
-    log::info!("[AC/DC] Local request succeeded person_id={}", body.person_id);
-    Ok(body.person_id)
+    log::info!("[AC/DC] resolved person_id_present=true");
+    Ok(body)
 }
 
 #[tauri::command]
