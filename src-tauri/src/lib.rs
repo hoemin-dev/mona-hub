@@ -1570,13 +1570,24 @@ fn restore_main_window(app: &AppHandle) {
         return;
     }
     if let Some(window) = app.get_webview_window("main") {
-        #[cfg(target_os = "windows")]
-        if let Err(error) = appbar::register(&window) {
-            log::error!("AppBar 재등록 실패: {error}");
+        // Startup uses native SWP_SHOWWINDOW, so Tao's first show can still
+        // apply its cached window styles/geometry. Finish that before docking.
+        if window.is_minimized().unwrap_or(false) {
+            if let Err(error) = window.unminimize() {
+                log::error!("[main-restore] unminimize failed: {error}");
+            }
         }
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
+        if let Err(error) = window.show().and_then(|_| window.set_focus()) {
+            log::error!("[main-restore] activation failed: {error}");
+        }
+        #[cfg(target_os = "windows")]
+        {
+            appbar::log_window_state(&window, "MAIN_RESTORE_BEFORE_DOCK");
+            if let Err(error) = appbar::register(&window) {
+                log::error!("AppBar 재등록 실패: {error}");
+            }
+            appbar::log_window_state(&window, "MAIN_RESTORE_AFTER_DOCK");
+        }
     }
 }
 
