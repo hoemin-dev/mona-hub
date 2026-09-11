@@ -1563,6 +1563,23 @@ pub fn run() {
         .unwrap_or(0);
     eprintln!("[{build_start_ms}] MAIN_BUILD_START source=tauri.conf");
     tauri::Builder::default()
+        // Check for an existing instance before creating windows or running setup.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                #[cfg(target_os = "windows")]
+                if let Err(error) = appbar::register(&window) {
+                    log::error!("[single-instance] AppBar registration failed: {error}");
+                }
+
+                if let Err(error) = window
+                    .unminimize()
+                    .and_then(|_| window.show())
+                    .and_then(|_| window.set_focus())
+                {
+                    log::error!("[single-instance] main activation failed: {error}");
+                }
+            }
+        }))
         .invoke_handler(tauri::generate_handler![
             notify_login_page_ready,
             close_login_window,
