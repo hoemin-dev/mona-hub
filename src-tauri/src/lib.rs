@@ -1777,8 +1777,6 @@ pub fn run() {
             /*
              * 트레이 메뉴
              */
-            let open_item = MenuItem::with_id(app, "open", "MONA-HUB 열기", true, None::<&str>)?;
-
             let login_item = MenuItem::with_id(app, "login", "로그인", true, None::<&str>)?;
             app.manage(TrayAuthMenuItem(login_item.clone()));
             sync_tray_auth_menu(app.handle(), AUTH_FLOW_STATE.load(Ordering::Acquire));
@@ -1787,8 +1785,7 @@ pub fn run() {
 
             let quit_item = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
 
-            let tray_menu =
-                Menu::with_items(app, &[&open_item, &login_item, &help_item, &quit_item])?;
+            let tray_menu = Menu::with_items(app, &[&login_item, &help_item, &quit_item])?;
 
             /*
              * 시스템 트레이
@@ -1803,13 +1800,6 @@ pub fn run() {
                 .menu(&tray_menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id().as_ref() {
-                    /*
-                     * MONA-HUB 열기
-                     */
-                    "open" => {
-                        restore_main_window(app);
-                    }
-
                     /*
                      * 로그인 창 열기
                      */
