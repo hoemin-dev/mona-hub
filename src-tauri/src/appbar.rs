@@ -22,6 +22,7 @@ use windows::{
             WindowsAndMessaging::{
                 CallWindowProcW, GetClientRect, GetWindowLongPtrW, GetWindowRect, IsWindowVisible,
                 PostMessageW, RegisterWindowMessageW, SetWindowLongPtrW, SetWindowPos,
+                IsIconic, ShowWindow, SetForegroundWindow, SW_RESTORE,
                 GWLP_WNDPROC, GWL_EXSTYLE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
                 SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, WM_ACTIVATE, WM_DESTROY, WM_DEVICECHANGE,
                 WM_DISPLAYCHANGE, WM_DPICHANGED, WM_SETTINGCHANGE, WM_WINDOWPOSCHANGED, WNDPROC,
@@ -418,12 +419,24 @@ fn register_impl(window: &WebviewWindow, show: bool) -> Result<(), String> {
     Ok(())
 }
 
-pub fn register(window: &WebviewWindow) -> Result<(), String> {
-    register_impl(window, false)
-}
-
 pub fn register_and_show(window: &WebviewWindow) -> Result<(), String> {
     register_impl(window, true)
+}
+
+// Keep activation on the same native path as the first show. Tao's cached
+// visibility is still false after SWP_SHOWWINDOW; its first show would queue a
+// style/geometry update that can run AFTER our synchronous AppBar negotiation.
+pub fn activate(window: &WebviewWindow) -> Result<(), String> {
+    let native = hwnd(window)?;
+    unsafe {
+        if IsIconic(native).as_bool() {
+            let _ = ShowWindow(native, SW_RESTORE);
+        }
+    }
+    register_and_show(window)?;
+    unsafe { let _ = SetForegroundWindow(native); }
+    log_window_state_raw(native, "MAIN_NATIVE_ACTIVATED");
+    Ok(())
 }
 
 pub fn unregister(window: &WebviewWindow) -> Result<(), String> {

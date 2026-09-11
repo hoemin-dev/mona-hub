@@ -147,8 +147,16 @@ async fn resolve(app: &AppHandle, generation: u64) -> Result<AcDcIdentityRespons
     let acdc_cookie = cookie(&login, ORIGIN)?;
     let client = reqwest::Client::builder().retry(reqwest::retry::never()).redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(10)).build().map_err(|_| "identity-client-failed")?;
-    let mona = access_identity(&client, APP_BASE_URL, &mona_cookie).await?;
-    let acdc = access_identity(&client, ORIGIN, &acdc_cookie).await?;
+    let started = Instant::now();
+    let mona_client = client.clone();
+    let mona_credential = mona_cookie.clone();
+    let mona_request = tauri::async_runtime::spawn(async move {
+        access_identity(&mona_client, APP_BASE_URL, &mona_credential).await
+    });
+    let acdc_result = access_identity(&client, ORIGIN, &acdc_cookie).await;
+    let mona = mona_request.await.map_err(|_| "access-identity-unavailable")??;
+    let acdc = acdc_result?;
+    log::info!("[LOGIN PERF] parallel Access identity checks: {:.1}ms", started.elapsed().as_secs_f64() * 1000.0);
     if mona.tid != acdc.tid || mona.oid != acdc.oid { return Err("identity-account-mismatch".into()); }
     if !active(generation) || cookie(&login, APP_BASE_URL)? != mona_cookie || cookie(&login, ORIGIN)? != acdc_cookie {
         return Err("access-session-changed".into());
