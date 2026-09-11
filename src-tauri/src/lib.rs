@@ -974,6 +974,23 @@ fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadP
         }
     }
 
+    if label == "main" && state == AUTH_WAITING_FOR_MAIN
+        && payload.event() == PageLoadEvent::Started && is_external_auth_url(url)
+        && window.app_handle().get_webview_window(LOGIN_WINDOW_LABEL).is_none()
+    {
+        let _ = window.navigate(app_url(PRELOGIN_PATH));
+        let app = window.app_handle().clone();
+        tauri::async_runtime::spawn(async move {
+            let handle = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                if AUTH_FLOW_STATE.load(Ordering::Acquire) == AUTH_WAITING_FOR_MAIN {
+                    identity_session::fallback_startup(&handle);
+                }
+            });
+        });
+        return;
+    }
+
     // After Access completes, the login WebView itself is redirected to the
     // protected app. Hide it at the navigation boundary so /app/ can finish
     // loading without ever being painted in the standalone login window. The
@@ -1256,7 +1273,7 @@ fn confirm_access_logout(window: WebviewWindow) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn begin_access_logout(window: WebviewWindow) -> Result<(), String> {
+async fn begin_access_logout(window: WebviewWindow) -> Result<(), String> {
     if window.label() != "main" {
         return Err("잘못된 창에서 로그아웃을 요청했습니다.".into());
     }
@@ -1275,8 +1292,23 @@ fn begin_access_logout(window: WebviewWindow) -> Result<(), String> {
     close_managed_web_app_windows(window.app_handle());
     sync_tray_auth_menu(window.app_handle(), AUTH_LOGGING_OUT_CLOUDFLARE);
     let Some(login) = window.app_handle().get_webview_window(LOGIN_WINDOW_LABEL) else {
-        set_auth_state(window.app_handle(), AUTHENTICATED);
-        return Err("login 창을 찾을 수 없습니다.".into());
+        // A successful startup fast path has never created this window. Building
+        // a WebView inside synchronous IPC can deadlock on Windows. This command
+        // is async so IPC returns before the UI-thread creation is dispatched.
+        let app = window.app_handle().clone();
+        let handle = app.clone();
+        return app.run_on_main_thread(move || {
+            if AUTH_FLOW_STATE.load(Ordering::Acquire) != AUTH_LOGGING_OUT_CLOUDFLARE { return; }
+            startup_trace::mark("logout.lazy-login.build");
+            if let Err(error) = show_or_create_login_window(&handle, "logout") {
+                set_auth_state(&handle, AUTH_IDLE);
+                if let Some(main) = handle.get_webview_window("main") { let _ = main.navigate(app_url(PRELOGIN_PATH)); }
+                log::error!("[logout] login window creation failed: {error}");
+            }
+        }).map_err(|error| {
+            set_auth_state(window.app_handle(), AUTH_IDLE);
+            error.to_string()
+        });
     };
     log::info!("[logout] started");
     match login.url() {
@@ -1315,7 +1347,7 @@ enum LoginDiagnosticOperation {
 }
 
 fn login_diagnostic_operation(origin: &str) -> LoginDiagnosticOperation {
-    if origin == "startup" {
+    if matches!(origin, "startup" | "logout") {
         return LoginDiagnosticOperation::Normal;
     }
 
@@ -1543,6 +1575,8 @@ fn show_or_create_login_window(app: &AppHandle, origin: &str) -> tauri::Result<(
     }
     let initial_url = WebviewUrl::External(if origin == "startup" {
         app_url(ACCESS_APP_PATH)
+    } else if origin == "logout" {
+        app_url(ACCESS_LOGOUT_PATH)
     } else {
         app_url(LOGIN_START_PATH)
     });
@@ -1738,8 +1772,7 @@ pub fn run() {
             #[cfg(not(target_os = "windows"))]
             APPBAR_INITIALIZED.store(true, Ordering::Release);
 
-            set_auth_state(app.handle(), AUTH_CHECKING_SESSION);
-            show_or_create_login_window(app.handle(), "startup")?;
+            identity_session::try_startup(app.handle());
 
             /*
              * 트레이 메뉴
@@ -1788,9 +1821,11 @@ pub fn run() {
                         ) {
                             if state == AUTHENTICATED {
                                 if let Some(main) = app.get_webview_window("main") {
-                                    if let Err(error) = begin_access_logout(main) {
-                                        log::error!("[auth] tray logout failed: {error}");
-                                    }
+                                    tauri::async_runtime::spawn(async move {
+                                        if let Err(error) = begin_access_logout(main).await {
+                                            log::error!("[auth] tray logout failed: {error}");
+                                        }
+                                    });
                                 }
                             } else {
                                 log::info!(

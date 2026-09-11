@@ -17,6 +17,9 @@ impl Session {
         self.claimed = true;
         Some(self.generation)
     }
+    fn is_active(&self, generation: u64, state: u8) -> bool {
+        self.generation == generation && matches!(state, AUTH_RESOLVING_IDENTITY | AUTH_WAITING_FOR_MAIN)
+    }
     fn clear(&mut self) {
         self.generation += 1;
         self.claimed = false;
@@ -33,8 +36,7 @@ pub fn identity() -> Result<AcDcIdentityResponse, String> {
     SESSION.lock().unwrap().identity.clone().ok_or("access-session-unavailable".into())
 }
 fn active(generation: u64) -> bool {
-    SESSION.lock().unwrap().generation == generation
-        && matches!(AUTH_FLOW_STATE.load(Ordering::Acquire), AUTH_RESOLVING_IDENTITY | AUTH_WAITING_FOR_MAIN)
+    SESSION.lock().unwrap().is_active(generation, AUTH_FLOW_STATE.load(Ordering::Acquire))
 }
 fn fail(app: &AppHandle, generation: u64, code: String) {
     if !active(generation) { return; }
@@ -48,6 +50,56 @@ fn fail(app: &AppHandle, generation: u64, code: String) {
         let _ = login.show();
     }
 }
+// Startup only: use the existing main profile before allocating a login WebView.
+// No cookie deletion or navigation is needed when both Access sessions are valid.
+pub fn try_startup(app: &AppHandle) {
+    clear();
+    set_auth_state(app, AUTH_RESOLVING_IDENTITY);
+    let generation = SESSION.lock().unwrap().generation;
+    startup_trace::mark("fast-path.begin; cookie-source=main; login-window-absent");
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let result = resolve(&app, generation, "main", Duration::from_secs(5)).await;
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if !active(generation) { return; }
+            match result {
+                Ok(identity) => {
+                    startup_trace::mark("fast-path.hit; login-and-sso.skipped");
+                    finish(&handle, generation, identity);
+                }
+                Err(code) => {
+                    startup_trace::mark(&format!("fast-path.miss code={code}"));
+                    fallback_startup(&handle);
+                }
+            }
+        });
+    });
+}
+
+// UI-thread only. Clearing the generation prevents late results from signing in.
+pub fn fallback_startup(app: &AppHandle) {
+    clear();
+    set_auth_state(app, AUTH_CHECKING_SESSION);
+    startup_trace::mark("fast-path.fallback; existing-login-flow.begin");
+    if let Err(error) = show_or_create_login_window(app, "startup") {
+        set_auth_state(app, AUTH_IDLE);
+        log::error!("[auth] startup fallback window failed: {error}");
+    }
+}
+
+fn finish(app: &AppHandle, generation: u64, identity: AcDcIdentityResponse) {
+    if !active(generation) { return; }
+    SESSION.lock().unwrap().identity = Some(identity);
+    acdc_diagnostic::record("[AC/DC] resolve succeeded person_id_present=true");
+    if let Some(main) = app.get_webview_window("main") {
+        set_auth_state(app, AUTH_WAITING_FOR_MAIN);
+        if main.navigate(app_url(ACCESS_APP_PATH)).is_ok() { return; }
+        set_auth_state(app, AUTH_RESOLVING_IDENTITY);
+    }
+    fail(app, generation, "main-navigation-failed".into());
+}
+
 pub fn start(app: &AppHandle) {
     startup_trace::mark("session.existing.confirmed; acdc.sso.begin");
     clear();
@@ -112,21 +164,12 @@ pub fn page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadPayl
     };
     let app = window.app_handle().clone();
     tauri::async_runtime::spawn(async move {
-        let result = resolve(&app, generation).await;
+        let result = resolve(&app, generation, LOGIN_WINDOW_LABEL, Duration::from_secs(10)).await;
         let handle = app.clone();
         let _ = app.run_on_main_thread(move || {
             if !active(generation) { return; }
             match result {
-                Ok(identity) => {
-                    SESSION.lock().unwrap().identity = Some(identity);
-                    acdc_diagnostic::record("[AC/DC] resolve succeeded person_id_present=true");
-                    if let Some(main) = handle.get_webview_window("main") {
-                        set_auth_state(&handle, AUTH_WAITING_FOR_MAIN);
-                        if main.navigate(app_url(ACCESS_APP_PATH)).is_ok() { return; }
-                        set_auth_state(&handle, AUTH_RESOLVING_IDENTITY);
-                    }
-                    fail(&handle, generation, "main-navigation-failed".into());
-                }
+                Ok(identity) => finish(&handle, generation, identity),
                 Err(code) => fail(&handle, generation, code),
             }
         });
@@ -142,21 +185,28 @@ async fn access_identity(client: &reqwest::Client, origin: &str, credential: &st
     startup_trace::mark(&format!("access.request.begin {origin}"));
     let response = client.get(format!("{origin}/cdn-cgi/access/get-identity"))
         .header("cookie", format!("CF_Authorization={credential}"))
-        .send().await.map_err(|_| "access-identity-unavailable")?;
+        .send().await.map_err(|error| {
+            startup_trace::mark(&format!("access.request.failed {origin} timeout={}", error.is_timeout()));
+            "access-identity-unavailable"
+        })?;
     startup_trace::mark(&format!("access.response {origin} status={}", response.status().as_u16()));
     if !response.status().is_success() { return Err("access-session-unavailable".into()); }
     let value = response.json().await.map_err(|_| "identity-invalid")?;
     startup_trace::mark(&format!("access.body.end {origin}"));
     acdc_identity::normalize(&value, ENTRA_TENANT_ID).map_err(String::from)
 }
-async fn resolve(app: &AppHandle, generation: u64) -> Result<AcDcIdentityResponse, String> {
-    let login = app.get_webview_window(LOGIN_WINDOW_LABEL).ok_or("login-window-missing")?;
+fn ensure_same_account(mona: &acdc_identity::Identity, acdc: &acdc_identity::Identity) -> Result<(), String> {
+    if mona.tid != acdc.tid || mona.oid != acdc.oid { return Err("identity-account-mismatch".into()); }
+    Ok(())
+}
+async fn resolve(app: &AppHandle, generation: u64, source: &str, timeout: Duration) -> Result<AcDcIdentityResponse, String> {
+    let session_window = app.get_webview_window(source).ok_or("session-window-missing")?;
     startup_trace::mark("identity.resolve.begin; cookies.begin");
-    let mona_cookie = cookie(&login, APP_BASE_URL)?;
-    let acdc_cookie = cookie(&login, ORIGIN)?;
+    let mona_cookie = cookie(&session_window, APP_BASE_URL)?;
+    let acdc_cookie = cookie(&session_window, ORIGIN)?;
     startup_trace::mark("identity.cookies.end; client.begin");
     let client = reqwest::Client::builder().retry(reqwest::retry::never()).redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(10)).build().map_err(|_| "identity-client-failed")?;
+        .timeout(timeout).build().map_err(|_| "identity-client-failed")?;
     startup_trace::mark("identity.client.end");
     let started = Instant::now();
     let mona_client = client.clone();
@@ -168,12 +218,12 @@ async fn resolve(app: &AppHandle, generation: u64) -> Result<AcDcIdentityRespons
     let mona = mona_request.await.map_err(|_| "access-identity-unavailable")??;
     let acdc = acdc_result?;
     log::info!("[LOGIN PERF] parallel Access identity checks: {:.1}ms", started.elapsed().as_secs_f64() * 1000.0);
-    if mona.tid != acdc.tid || mona.oid != acdc.oid { return Err("identity-account-mismatch".into()); }
-    if !active(generation) || cookie(&login, APP_BASE_URL)? != mona_cookie || cookie(&login, ORIGIN)? != acdc_cookie {
+    ensure_same_account(&mona, &acdc)?;
+    if !active(generation) || cookie(&session_window, APP_BASE_URL)? != mona_cookie || cookie(&session_window, ORIGIN)? != acdc_cookie {
         return Err("access-session-changed".into());
     }
     let result = get_me(&client, &format!("{ORIGIN}/api/me"), &acdc_cookie).await?;
-    if !active(generation) || cookie(&login, APP_BASE_URL)? != mona_cookie || cookie(&login, ORIGIN)? != acdc_cookie {
+    if !active(generation) || cookie(&session_window, APP_BASE_URL)? != mona_cookie || cookie(&session_window, ORIGIN)? != acdc_cookie {
         return Err("access-session-changed".into());
     }
     Ok(result)
@@ -208,6 +258,25 @@ mod tests {
         assert_ne!(first, session.generation);
         assert_eq!(session.claim(), Some(session.generation));
         assert!(session.claim().is_none());
+    }
+    #[test]
+    fn startup_results_cannot_outlive_logout_cancel_or_fallback() {
+        let mut session = Session::default();
+        let generation = session.generation;
+        assert!(session.is_active(generation, AUTH_RESOLVING_IDENTITY));
+        assert!(session.is_active(generation, AUTH_WAITING_FOR_MAIN));
+        for state in [AUTH_IDLE, AUTH_LOGGING_OUT_CLOUDFLARE, AUTH_LOGGING_OUT_ENTRA, AUTH_CHECKING_SESSION, AUTHENTICATED] {
+            assert!(!session.is_active(generation, state));
+        }
+        session.clear();
+        assert!(!session.is_active(generation, AUTH_RESOLVING_IDENTITY));
+    }
+    #[test]
+    fn cached_sessions_must_belong_to_the_same_account() {
+        let id = |tid: &str, oid: &str| acdc_identity::Identity { tid: tid.into(), oid: oid.into(), name: String::new() };
+        assert!(ensure_same_account(&id("tenant-a", "user-a"), &id("tenant-a", "user-a")).is_ok());
+        assert!(ensure_same_account(&id("tenant-a", "user-a"), &id("tenant-a", "user-b")).is_err());
+        assert!(ensure_same_account(&id("tenant-a", "user-a"), &id("tenant-b", "user-a")).is_err());
     }
     #[test]
     fn get_is_single_authenticated_request_and_fails_closed() {
