@@ -14,12 +14,9 @@ use tauri::{
 };
 use tauri_plugin_log::{Target, TargetKind};
 
-const ACDC_LOCAL_ME_URL: &str = "http://127.0.0.1:8787/api/me";
-const ACDC_REQUEST_TIMEOUT_SECS: u64 = 3;
-
 mod acdc_diagnostic;
 mod acdc_identity;
-mod local_bridge_token;
+mod identity_session;
 
 // TEMPORARY local WebView compatibility harness, with no native IPC capability.
 mod popup_test;
@@ -47,6 +44,7 @@ const AUTHENTICATED: u8 = 3;
 const AUTH_LOGGING_OUT_CLOUDFLARE: u8 = 4;
 const AUTH_LOGGING_OUT_ENTRA: u8 = 5;
 const AUTH_CHECKING_SESSION: u8 = 6;
+const AUTH_RESOLVING_IDENTITY: u8 = 7;
 static LOGIN_REQUEST_ID: AtomicU64 = AtomicU64::new(0);
 static AUTH_FLOW_STATE: AtomicU8 = AtomicU8::new(AUTH_IDLE);
 static LOGIN_PAGE_LOAD: OnceLock<Mutex<Option<(u64, Instant)>>> = OnceLock::new();
@@ -55,7 +53,7 @@ static PROFILE_POPUP_BLURRED_AT: OnceLock<Mutex<Option<Instant>>> = OnceLock::ne
 static MAIN_FIRST_NAV_STARTED_LOGGED: AtomicBool = AtomicBool::new(false);
 static MAIN_FIRST_NAV_FINISHED_LOGGED: AtomicBool = AtomicBool::new(false);
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
 struct AcDcIdentityResponse {
     person_id: String,
     tenant_id: String,
@@ -72,126 +70,15 @@ fn is_valid_person_id(value: &str) -> bool {
             .all(|byte| b"23456789ABCDEFGHJKMNPQRSTVWXYZ".contains(&byte))
 }
 
-#[cfg(test)]
-mod acdc_tests {
-    use super::is_valid_person_id;
-
-    #[test]
-    fn accepts_only_acdc_person_id_format() {
-        assert!(is_valid_person_id("PER-ABCDEFGH"));
-        assert!(!is_valid_person_id("PER-ABCDEF01"));
-        assert!(!is_valid_person_id("PER-abcdefgH"));
-        assert!(!is_valid_person_id("PER-ABCDEFG"));
-    }
-
-    #[test]
-    fn bridge_transport_handles_response_offline_timeout_and_redirect() {
-        use std::{io::{Read, Write}, net::TcpListener, time::Duration};
-        fn serve(status: &str, body: &str, pause: u64) -> (String, std::thread::JoinHandle<()>) {
-            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-            let url = format!("http://{}/api/me", listener.local_addr().unwrap());
-            let response = format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
-            let thread = std::thread::spawn(move || {
-                let (mut stream, _) = listener.accept().unwrap();
-                let mut bytes = [0; 8192];
-                let read = stream.read(&mut bytes).unwrap();
-                let request = String::from_utf8_lossy(&bytes[..read]);
-                assert!(request.starts_with("POST /api/me"));
-                assert!(request.contains("x-mona-local-bridge-token:"));
-                assert!(!request.contains("CF_Authorization"));
-                std::thread::sleep(Duration::from_millis(pause));
-                let _ = stream.write_all(response.as_bytes());
-            });
-            (url, thread)
-        }
-        let identity = super::acdc_identity::Identity { tid: "fixture".into(), oid: "fixture".into(), name: "".into() };
-        for (status, body, expected) in [
-            ("201 Created", r#"{"person_id":"PER-ABCDEFGH","tenant_id":"TEN-TEST","status":"ACTIVE"}"#, None),
-            ("200 OK", r#"{"person_id":"invalid","tenant_id":"TEN-TEST","status":"ACTIVE"}"#, Some("bridge-response-invalid")),
-            ("503 Unavailable", "{}", Some("bridge-http-503")),
-            ("302 Found", "{}", Some("bridge-http-302")),
-        ] {
-            let (url, thread) = serve(status, body, 0);
-            let result = tauri::async_runtime::block_on(super::post_acdc_identity(&url, &identity, "fixture-token", Duration::from_secs(2)));
-            assert_eq!(result.err().as_deref(), expected); thread.join().unwrap();
-        }
-        let (url, thread) = serve("200 OK", "{}", 200);
-        let result = tauri::async_runtime::block_on(super::post_acdc_identity(&url, &identity, "fixture-token", Duration::from_millis(30)));
-        assert_eq!(result.err().as_deref(), Some("bridge-timeout")); thread.join().unwrap();
-        let socket = TcpListener::bind("127.0.0.1:0").unwrap();
-        let url = format!("http://{}/api/me", socket.local_addr().unwrap()); drop(socket);
-        let result = tauri::async_runtime::block_on(super::post_acdc_identity(&url, &identity, "fixture-token", Duration::from_secs(1)));
-        // Windows may silently drop a closed-port connect until our deadline.
-        assert!(matches!(result.err().as_deref(), Some("bridge-offline" | "bridge-timeout")));
-    }
-}
-
-fn access_cookie(window: &WebviewWindow) -> Result<String, String> {
-    if matches!(AUTH_FLOW_STATE.load(Ordering::Acquire), AUTH_LOGGING_OUT_CLOUDFLARE | AUTH_LOGGING_OUT_ENTRA) {
-        return Err("access-session-changed".into());
-    }
-    let url = window.url().map_err(|_| "unauthorized-caller")?;
-    if window.label() != "main" || url.origin().ascii_serialization() != APP_BASE_URL
-        || !url.path().starts_with(ACCESS_APP_PATH) {
-        return Err("unauthorized-caller".into());
-    }
-    // Only the native process handles the HttpOnly credential; never return it to JS.
-    window.cookies_for_url(Url::parse(APP_BASE_URL).unwrap())
-        .map_err(|_| "access-session-unavailable")?.into_iter()
-        .find(|cookie| cookie.name() == "CF_Authorization" && !cookie.value().is_empty())
-        .map(|cookie| cookie.value().to_owned()).ok_or("access-session-unavailable".into())
-}
-
+// Compatibility command for deployed pages: runtime read only, never an HTTP call.
 #[tauri::command]
-async fn sync_acdc_identity(window: WebviewWindow) -> Result<AcDcIdentityResponse, String> {
-    let result = resolve_acdc_identity(window).await;
-    match &result {
-        Ok(_) => acdc_diagnostic::record("[AC/DC] resolve succeeded person_id_present=true"),
-        Err(code) => acdc_diagnostic::record(&format!("[AC/DC] resolve failed code={code}")),
+fn sync_acdc_identity(window: WebviewWindow) -> Result<AcDcIdentityResponse, String> {
+    let url = window.url().map_err(|_| "unauthorized-caller")?;
+    if window.label() != "main" || !is_access_app_url(&url)
+        || !matches!(AUTH_FLOW_STATE.load(Ordering::Acquire), AUTHENTICATED | AUTH_WAITING_FOR_MAIN) {
+        return Err("access-session-unavailable".into());
     }
-    result
-}
-
-async fn resolve_acdc_identity(window: WebviewWindow) -> Result<AcDcIdentityResponse, String> {
-    let credential = access_cookie(&window)?;
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(std::time::Duration::from_secs(10))
-        .build().map_err(|_| "access-client-error")?;
-    // HTTPS to the fixed Access-protected origin validates the native session.
-    // Do not accept browser-supplied tid/oid/name or forward the credential to AC/DC.
-    let response = client.get(format!("{APP_BASE_URL}/cdn-cgi/access/get-identity"))
-        .header("cookie", format!("CF_Authorization={credential}"))
-        .send().await.map_err(|_| "access-identity-unavailable")?;
-    if !response.status().is_success() { return Err("access-session-unavailable".into()); }
-    let value: serde_json::Value = response.json().await.map_err(|_| "identity-invalid")?;
-    let identity = acdc_identity::normalize(&value, ENTRA_TENANT_ID)?;
-    if access_cookie(&window)? != credential { return Err("access-session-changed".into()); }
-    let bridge_token = local_bridge_token::load_or_create().map_err(|_| "bridge-configuration")?;
-    let body = post_acdc_identity(ACDC_LOCAL_ME_URL, &identity, &bridge_token,
-        std::time::Duration::from_secs(ACDC_REQUEST_TIMEOUT_SECS)).await?;
-    if access_cookie(&window)? != credential { return Err("access-session-changed".into()); }
-    Ok(body)
-}
-
-async fn post_acdc_identity(endpoint: &str, identity: &acdc_identity::Identity,
-    bridge_token: &str, timeout: std::time::Duration) -> Result<AcDcIdentityResponse, String> {
-    let local = reqwest::Client::builder().no_proxy()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(timeout)
-        .build().map_err(|_| "bridge-client-error")?;
-    let response = local.post(endpoint)
-        .header("x-mona-local-bridge-token", bridge_token).json(&identity)
-        .send().await.map_err(|e| if e.is_timeout() { "bridge-timeout" } else { "bridge-offline" })?;
-    let status = response.status();
-    log::info!("[AC/DC] resolve http_status={}", status.as_u16());
-    if !status.is_success() { return Err(format!("bridge-http-{}", status.as_u16())); }
-    let body: AcDcIdentityResponse = response.json().await.map_err(|_| "bridge-response-invalid")?;
-    if !is_valid_person_id(&body.person_id) || body.tenant_id.trim().is_empty() || body.status != "ACTIVE" {
-        return Err("bridge-response-invalid".into());
-    }
-    log::info!("[AC/DC] resolved person_id_present=true");
-    Ok(body)
+    identity_session::identity()
 }
 
 #[tauri::command]
@@ -240,6 +127,7 @@ fn auth_state_name(state: u8) -> &'static str {
     match state {
         AUTH_IDLE => "PRELOGIN",
         AUTH_WAITING_FOR_LOGIN | AUTH_WAITING_FOR_MAIN => "AUTHENTICATING",
+        AUTH_RESOLVING_IDENTITY => "RESOLVING_IDENTITY",
         AUTHENTICATED => "AUTHENTICATED",
         AUTH_LOGGING_OUT_CLOUDFLARE => "AUTH_LOGGING_OUT_CLOUDFLARE",
         AUTH_LOGGING_OUT_ENTRA => "AUTH_LOGGING_OUT_ENTRA",
@@ -268,6 +156,12 @@ fn sync_tray_auth_menu(app: &AppHandle, state: u8) {
 }
 
 fn set_auth_state(app: &AppHandle, state: u8) {
+    if state == AUTH_IDLE { identity_session::clear(); }
+    if state == AUTHENTICATED && identity_session::identity().is_err() {
+        set_auth_state(app, AUTH_IDLE);
+        if let Some(main) = app.get_webview_window("main") { let _ = main.navigate(app_url(PRELOGIN_PATH)); }
+        return;
+    }
     let previous = AUTH_FLOW_STATE.swap(state, Ordering::AcqRel);
     if previous != state {
         log::info!("[auth] state {}", auth_state_name(state));
@@ -640,7 +534,7 @@ fn handle_login_window_close(window: &WebviewWindow) {
             }
         }
         log::warn!(
-            "[logout] cancelled by user; authenticated UI retained so logout can be retried"
+            "[logout] cancelled by user; runtime identity cleared; returning to prelogin"
         );
     } else if state == AUTH_LOGGING_OUT_ENTRA {
         set_auth_state(window.app_handle(), AUTH_IDLE);
@@ -654,7 +548,7 @@ fn handle_login_window_close(window: &WebviewWindow) {
         log::warn!(
             "[logout] Entra logout window closed after Cloudflare logout; state kept PRELOGIN"
         );
-    } else if matches!(state, AUTH_WAITING_FOR_LOGIN | AUTH_WAITING_FOR_MAIN) {
+    } else if matches!(state, AUTH_WAITING_FOR_LOGIN | AUTH_WAITING_FOR_MAIN | AUTH_RESOLVING_IDENTITY) {
         set_auth_state(window.app_handle(), AUTH_IDLE);
         log::info!("[auth] login cancelled; state=PRELOGIN");
     }
@@ -679,6 +573,8 @@ fn begin_access_login(window: WebviewWindow) -> Result<(), String> {
     if is_logging_out() {
         return Err("로그아웃이 진행 중입니다.".to_string());
     }
+    if AUTH_FLOW_STATE.load(Ordering::Acquire) == AUTH_RESOLVING_IDENTITY { return Err("identity-resolving".into()); }
+    identity_session::clear();
     set_auth_state(window.app_handle(), AUTH_WAITING_FOR_LOGIN);
     log::info!("[ACCESS] login started in login WebView");
     Ok(())
@@ -993,6 +889,7 @@ fn log_auth_navigation(label: &str, event: &str, url: &Url, state: u8) {
 }
 
 fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadPayload<'_>) {
+    if identity_session::page_load(window, payload) { return; }
     let label = window.label();
     let url = payload.url();
     let state = AUTH_FLOW_STATE.load(Ordering::Acquire);
@@ -1163,19 +1060,8 @@ fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadP
         && matches!(state, AUTH_CHECKING_SESSION | AUTH_WAITING_FOR_LOGIN)
         && is_access_app_url(url)
     {
-        set_auth_state(window.app_handle(), AUTH_WAITING_FOR_MAIN);
-        log::info!(
-            "[ACCESS] protected app loaded in login WebView; navigating existing main WebView"
-        );
-
-        if let Some(main) = window.app_handle().get_webview_window("main") {
-            if let Err(error) = main.navigate(app_url(ACCESS_APP_PATH)) {
-                set_auth_state(window.app_handle(), AUTH_WAITING_FOR_LOGIN);
-                log::error!("[ACCESS] main WebView navigation failed: {error}");
-            }
-        } else {
-            set_auth_state(window.app_handle(), AUTH_WAITING_FOR_LOGIN);
-            log::error!("[ACCESS] main WebView not found");
+        if AUTH_FLOW_STATE.compare_exchange(state, AUTH_RESOLVING_IDENTITY, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+            identity_session::start(window.app_handle());
         }
         return;
     }
@@ -1356,6 +1242,7 @@ fn begin_access_logout(window: WebviewWindow) -> Result<(), String> {
     // App windows are no longer usable as soon as logout is requested. Close them
     // before any Cloudflare or Entra navigation, without making cleanup a logout
     // prerequisite.
+    identity_session::clear();
     close_managed_web_app_windows(window.app_handle());
     sync_tray_auth_menu(window.app_handle(), AUTH_LOGGING_OUT_CLOUDFLARE);
     let Some(login) = window.app_handle().get_webview_window(LOGIN_WINDOW_LABEL) else {
@@ -1440,6 +1327,16 @@ fn request_login(app: &AppHandle, origin: &str) -> tauri::Result<()> {
         AUTH_LOGGING_OUT_CLOUDFLARE | AUTH_LOGGING_OUT_ENTRA => {
             log::info!("[auth] navigation decision=no-op logging-out");
             log::info!("[auth] login request ignored while logout is in progress");
+            return Ok(());
+        }
+        AUTH_RESOLVING_IDENTITY => {
+            if let Some(login) = login_window {
+                if login.url().is_ok_and(|url| is_external_auth_url(&url)) {
+                    login.unminimize()?;
+                    login.show()?;
+                    login.set_focus()?;
+                }
+            }
             return Ok(());
         }
         AUTH_WAITING_FOR_LOGIN | AUTH_WAITING_FOR_MAIN => {
@@ -1684,8 +1581,6 @@ pub fn run() {
         ])
         .on_page_load(handle_page_load)
         .setup(|app| {
-            local_bridge_token::initialize()?;
-
             /*
              * 개발 모드 로그
              */

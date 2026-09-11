@@ -13,7 +13,6 @@ const invoke = window.__TAURI__?.core?.invoke;
 const monaSession = new MonaSession(invoke);
 Object.defineProperty(window, "monaIdentity", { get: () => monaSession.state.identity });
 Object.defineProperty(window, "monaIdentityState", { get: () => monaSession.state });
-window.retryMonaIdentity = () => monaSession.resolve();
 monaSession.addEventListener("change", () => {
   const state = monaSession.state;
   console.info("[AC/DC] session", { status: state.status, error: state.error });
@@ -30,12 +29,8 @@ const authController = new AuthController(
   }
 );
 
-// Native code fetches Access identity with the current HttpOnly session.
-// AC/DC availability does not control the Cloudflare login state.
+// Read the identity already resolved by the native login gate. No HTTP request.
 void monaSession.resolve();
-window.addEventListener("online", () => {
-  if (monaSession.state.status === "unavailable") void monaSession.resolve();
-});
 window.addEventListener("pagehide", () => monaSession.clear());
 
 async function toggleProfileMenu() {
