@@ -17,6 +17,7 @@ use tauri_plugin_log::{Target, TargetKind};
 mod acdc_diagnostic;
 mod acdc_identity;
 mod identity_session;
+mod startup_trace;
 
 // TEMPORARY local WebView compatibility harness, with no native IPC capability.
 mod popup_test;
@@ -163,6 +164,7 @@ fn set_auth_state(app: &AppHandle, state: u8) {
         if let Some(main) = app.get_webview_window("main") { let _ = main.navigate(app_url(PRELOGIN_PATH)); }
         return;
     }
+    startup_trace::mark(&format!("auth.state {}", auth_state_name(state)));
     let previous = AUTH_FLOW_STATE.swap(state, Ordering::AcqRel);
     if previous != state {
         log::info!("[auth] state {}", auth_state_name(state));
@@ -890,6 +892,23 @@ fn log_auth_navigation(label: &str, event: &str, url: &Url, state: u8) {
 }
 
 fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadPayload<'_>) {
+    startup_trace::mark(&format!("webview.{} {:?} {}", window.label(), payload.event(), safe_url_for_log(payload.url())));
+    if startup_trace::enabled() && window.label() == "main" && is_access_app_url(payload.url()) && payload.event() == PageLoadEvent::Finished {
+        let _ = window.eval(r#"(() => {
+            if (window.__startupRenderProbe) return;
+            window.__startupRenderProbe = true;
+            const report = () => {
+                if (window.monaIdentityState?.status !== 'ready') return;
+                window.removeEventListener('mona:identity-changed', report);
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    if (document.querySelector('#appList .app-button') && document.querySelector('#profileButton'))
+                        window.__TAURI__.core.invoke('startup_rendered').catch(() => {});
+                }));
+            };
+            window.addEventListener('mona:identity-changed', report);
+            report();
+        })()"#);
+    }
     if identity_session::page_load(window, payload) { return; }
     let label = window.label();
     let url = payload.url();
@@ -1076,6 +1095,15 @@ fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadP
             }
         }
     }
+}
+
+#[tauri::command]
+fn startup_rendered(window: WebviewWindow) -> Result<(), String> {
+    if window.label() != "main" || !is_access_app_url(&window.url().map_err(|_| "url unavailable")?) {
+        return Err("invalid diagnostic caller".into());
+    }
+    startup_trace::mark("main.identity-and-app-list.rendered (two animation frames; webview-reported)");
+    Ok(())
 }
 
 #[tauri::command]
@@ -1518,6 +1546,7 @@ fn show_or_create_login_window(app: &AppHandle, origin: &str) -> tauri::Result<(
     } else {
         app_url(LOGIN_START_PATH)
     });
+    startup_trace::mark("login.build.begin");
     let login_window = WebviewWindowBuilder::new(app, LOGIN_WINDOW_LABEL, initial_url)
         .title("MONA-HUB 로그인")
         .inner_size(420.0, 500.0)
@@ -1530,6 +1559,7 @@ fn show_or_create_login_window(app: &AppHandle, origin: &str) -> tauri::Result<(
         .skip_taskbar(false)
         .visible(false)
         .build()?;
+    startup_trace::mark("login.build.end");
     if let Ok(url) = login_window.url() {
         log::info!(
             "[auth] login initial url after build={}",
@@ -1594,14 +1624,17 @@ fn restore_main_window(app: &AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    startup_trace::mark("tauri.run.enter");
     let build_start_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis())
         .unwrap_or(0);
     eprintln!("[{build_start_ms}] MAIN_BUILD_START source=tauri.conf");
     tauri::Builder::default()
+        .plugin(tauri::plugin::Builder::<tauri::Wry>::new("startup-before-single").setup(|_, _| { startup_trace::mark("single.setup.begin"); Ok(()) }).build())
         // Check for an existing instance before creating windows or running setup.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            startup_trace::mark("single.second-instance.callback");
             // Drop early launches; startup owns the first placement and navigation.
             if !main_activation_ready() {
                 log::info!("[single-instance] ignored while AppBar/startup is initializing");
@@ -1612,7 +1645,9 @@ pub fn run() {
                 log::error!("[single-instance] main activation dispatch failed: {error}");
             }
         }))
+        .plugin(tauri::plugin::Builder::<tauri::Wry>::new("startup-after-single").setup(|_, _| { startup_trace::mark("single.setup.end; config-window-build.next"); Ok(()) }).build())
         .invoke_handler(tauri::generate_handler![
+            startup_rendered,
             notify_login_page_ready,
             close_login_window,
             minimize_login_window,
@@ -1630,6 +1665,7 @@ pub fn run() {
         ])
         .on_page_load(handle_page_load)
         .setup(|app| {
+            startup_trace::mark("app.setup.enter; main.build.done");
             /*
              * 개발 모드 로그
              */
@@ -1668,7 +1704,9 @@ pub fn run() {
 
             // WebView IPC command 안에서 새 WebView를 동기 생성하면 Windows에서
             // 생성 완료를 기다리며 교착될 수 있으므로 hidden popup을 setup에서 준비한다.
+            startup_trace::mark("profile-popup.build.begin");
             let popup = profile_popup(app.handle())?;
+            startup_trace::mark("profile-popup.build.end");
             log::info!(
                 "[profile-popup] setup ready: visible={:?}, outer_size={:?}",
                 popup.is_visible(),
@@ -1681,10 +1719,12 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             {
                 if let Some(window) = app.get_webview_window("main") {
+                    startup_trace::mark("appbar.register-show.begin");
                     match appbar::register_and_show(&window) {
                         Ok(()) => {
                             appbar::log_window_state(&window, "MAIN_NATIVE_SHOW_DONE");
                             APPBAR_INITIALIZED.store(true, Ordering::Release);
+                            startup_trace::mark("appbar.register-show.end");
                         }
                         Err(error) => {
                             eprintln!("AppBar 등록 실패: {error}");

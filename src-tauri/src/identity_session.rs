@@ -49,12 +49,14 @@ fn fail(app: &AppHandle, generation: u64, code: String) {
     }
 }
 pub fn start(app: &AppHandle) {
+    startup_trace::mark("session.existing.confirmed; acdc.sso.begin");
     clear();
     let generation = SESSION.lock().unwrap().generation;
     let handle = app.clone();
     tauri::async_runtime::spawn(async move {
         // Remove the old application cookie so switching MonaHub accounts cannot
         // silently reuse the previous AC/DC account. Keep Access global SSO.
+        startup_trace::mark("acdc.cookie-reset.begin");
         let result = (|| -> Result<(), String> {
             let login = handle.get_webview_window(LOGIN_WINDOW_LABEL).ok_or("login-window-missing")?;
             for cookie in login.cookies_for_url(Url::parse(ORIGIN).unwrap()).map_err(|_| "access-session-unavailable")? {
@@ -64,12 +66,15 @@ pub fn start(app: &AppHandle) {
             }
             Ok(())
         })();
+        startup_trace::mark("acdc.cookie-reset.end; navigation.dispatch");
         let app = handle.clone();
         let _ = handle.run_on_main_thread(move || {
+            startup_trace::mark("acdc.navigation.main-thread.enter");
             if !active(generation) { return; }
             let result = result.and_then(|_| app.get_webview_window(LOGIN_WINDOW_LABEL)
                 .ok_or("login-window-missing".to_string())
                 .and_then(|login| login.navigate(Url::parse(&format!("{LANDING}?mona_identity_attempt={generation}")).unwrap()).map_err(|_| "identity-navigation-failed".into())));
+            startup_trace::mark("acdc.navigation.returned");
             if let Err(code) = result { fail(&app, generation, code); }
         });
     });
@@ -134,19 +139,25 @@ fn cookie(window: &WebviewWindow, origin: &str) -> Result<String, String> {
         .map(|c| c.value().to_owned()).ok_or("access-session-unavailable".into())
 }
 async fn access_identity(client: &reqwest::Client, origin: &str, credential: &str) -> Result<acdc_identity::Identity, String> {
+    startup_trace::mark(&format!("access.request.begin {origin}"));
     let response = client.get(format!("{origin}/cdn-cgi/access/get-identity"))
         .header("cookie", format!("CF_Authorization={credential}"))
         .send().await.map_err(|_| "access-identity-unavailable")?;
+    startup_trace::mark(&format!("access.response {origin} status={}", response.status().as_u16()));
     if !response.status().is_success() { return Err("access-session-unavailable".into()); }
     let value = response.json().await.map_err(|_| "identity-invalid")?;
+    startup_trace::mark(&format!("access.body.end {origin}"));
     acdc_identity::normalize(&value, ENTRA_TENANT_ID).map_err(String::from)
 }
 async fn resolve(app: &AppHandle, generation: u64) -> Result<AcDcIdentityResponse, String> {
     let login = app.get_webview_window(LOGIN_WINDOW_LABEL).ok_or("login-window-missing")?;
+    startup_trace::mark("identity.resolve.begin; cookies.begin");
     let mona_cookie = cookie(&login, APP_BASE_URL)?;
     let acdc_cookie = cookie(&login, ORIGIN)?;
+    startup_trace::mark("identity.cookies.end; client.begin");
     let client = reqwest::Client::builder().retry(reqwest::retry::never()).redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(10)).build().map_err(|_| "identity-client-failed")?;
+    startup_trace::mark("identity.client.end");
     let started = Instant::now();
     let mona_client = client.clone();
     let mona_credential = mona_cookie.clone();
@@ -169,14 +180,17 @@ async fn resolve(app: &AppHandle, generation: u64) -> Result<AcDcIdentityRespons
 }
 async fn get_me(client: &reqwest::Client, endpoint: &str, credential: &str) -> Result<AcDcIdentityResponse, String> {
     // Exactly one GET. No redirect following, retries, caller claims or local bridge.
+    startup_trace::mark("acdc.api-me.request.begin");
     log::info!("[AC/DC] GET /api/me once");
     let response = client.get(endpoint).header("cookie", format!("CF_Authorization={credential}"))
         .header("accept", "application/json").send().await.map_err(|_| "identity-request-failed")?;
+    startup_trace::mark(&format!("acdc.api-me.response status={}", response.status().as_u16()));
     if !response.status().is_success() { return Err(format!("identity-http-{}", response.status().as_u16())); }
     let identity: AcDcIdentityResponse = response.json().await.map_err(|_| "identity-response-invalid")?;
     if !is_valid_person_id(&identity.person_id) || identity.tenant_id.trim().is_empty() || identity.status != "ACTIVE" {
         return Err("identity-response-invalid".into());
     }
+    startup_trace::mark("acdc.api-me.body.end");
     Ok(identity)
 }
 

@@ -1,0 +1,8 @@
+{
+  "identifier": "startup-diagnostic",
+  "description": "Diagnostic IPC uses an Origin without a path; the native command checks the actual main /app/ URL.",
+  "local": false,
+  "windows": ["main"],
+  "remote": { "urls": ["https://mona-hub.pages.dev"] },
+  "permissions": ["allow-startup-rendered"]
+}

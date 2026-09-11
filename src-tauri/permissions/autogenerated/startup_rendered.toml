@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-startup-rendered"
+description = "Enables the startup_rendered command without any pre-configured scope."
+commands.allow = ["startup_rendered"]
+
+[[permission]]
+identifier = "deny-startup-rendered"
+description = "Denies the startup_rendered command without any pre-configured scope."
+commands.deny = ["startup_rendered"]
