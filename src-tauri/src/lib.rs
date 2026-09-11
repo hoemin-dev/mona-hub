@@ -50,6 +50,7 @@ static AUTH_FLOW_STATE: AtomicU8 = AtomicU8::new(AUTH_IDLE);
 static LOGIN_PAGE_LOAD: OnceLock<Mutex<Option<(u64, Instant)>>> = OnceLock::new();
 static LOGIN_START_URL: OnceLock<Mutex<Option<Url>>> = OnceLock::new();
 static PROFILE_POPUP_BLURRED_AT: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
+static APPBAR_INITIALIZED: AtomicBool = AtomicBool::new(false);
 static MAIN_FIRST_NAV_STARTED_LOGGED: AtomicBool = AtomicBool::new(false);
 static MAIN_FIRST_NAV_FINISHED_LOGGED: AtomicBool = AtomicBool::new(false);
 
@@ -1555,6 +1556,30 @@ fn show_or_create_login_window(app: &AppHandle, origin: &str) -> tauri::Result<(
     Ok(())
 }
 
+// Called on the UI thread by both tray actions and second-instance dispatch.
+fn main_activation_ready() -> bool {
+    APPBAR_INITIALIZED.load(Ordering::Acquire)
+        && !matches!(
+            AUTH_FLOW_STATE.load(Ordering::Acquire),
+            AUTH_CHECKING_SESSION | AUTH_RESOLVING_IDENTITY | AUTH_WAITING_FOR_MAIN
+        )
+}
+
+fn restore_main_window(app: &AppHandle) {
+    if !main_activation_ready() {
+        return;
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        #[cfg(target_os = "windows")]
+        if let Err(error) = appbar::register(&window) {
+            log::error!("AppBar 재등록 실패: {error}");
+        }
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let build_start_ms = SystemTime::now()
@@ -1565,19 +1590,14 @@ pub fn run() {
     tauri::Builder::default()
         // Check for an existing instance before creating windows or running setup.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                #[cfg(target_os = "windows")]
-                if let Err(error) = appbar::register(&window) {
-                    log::error!("[single-instance] AppBar registration failed: {error}");
-                }
-
-                if let Err(error) = window
-                    .unminimize()
-                    .and_then(|_| window.show())
-                    .and_then(|_| window.set_focus())
-                {
-                    log::error!("[single-instance] main activation failed: {error}");
-                }
+            // Drop early launches; startup owns the first placement and navigation.
+            if !main_activation_ready() {
+                log::info!("[single-instance] ignored while AppBar/startup is initializing");
+                return;
+            }
+            let handle = app.clone();
+            if let Err(error) = app.run_on_main_thread(move || restore_main_window(&handle)) {
+                log::error!("[single-instance] main activation dispatch failed: {error}");
             }
         }))
         .invoke_handler(tauri::generate_handler![
@@ -1652,6 +1672,7 @@ pub fn run() {
                     match appbar::register_and_show(&window) {
                         Ok(()) => {
                             appbar::log_window_state(&window, "MAIN_NATIVE_SHOW_DONE");
+                            APPBAR_INITIALIZED.store(true, Ordering::Release);
                         }
                         Err(error) => {
                             eprintln!("AppBar 등록 실패: {error}");
@@ -1661,6 +1682,9 @@ pub fn run() {
                     eprintln!("main 창을 찾을 수 없습니다.");
                 }
             }
+
+            #[cfg(not(target_os = "windows"))]
+            APPBAR_INITIALIZED.store(true, Ordering::Release);
 
             set_auth_state(app.handle(), AUTH_CHECKING_SESSION);
             show_or_create_login_window(app.handle(), "startup")?;
@@ -1698,18 +1722,7 @@ pub fn run() {
                      * MONA-HUB 열기
                      */
                     "open" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            #[cfg(target_os = "windows")]
-                            {
-                                if let Err(error) = appbar::register(&window) {
-                                    eprintln!("AppBar 재등록 실패: {error}");
-                                }
-                            }
-
-                            let _ = window.unminimize();
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
+                        restore_main_window(app);
                     }
 
                     /*
@@ -1797,18 +1810,7 @@ pub fn run() {
                     {
                         let app = tray.app_handle();
 
-                        if let Some(window) = app.get_webview_window("main") {
-                            #[cfg(target_os = "windows")]
-                            {
-                                if let Err(error) = appbar::register(&window) {
-                                    eprintln!("AppBar 재등록 실패: {error}");
-                                }
-                            }
-
-                            let _ = window.unminimize();
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
+                        restore_main_window(app);
                     }
                 })
                 .build(app)?;
