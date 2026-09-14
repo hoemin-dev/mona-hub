@@ -22,7 +22,7 @@ function showMenu() {
   confirmButton.disabled = false;
   confirmView.hidden = true;
   menuView.hidden = false;
-  logoutItem.focus();
+  menuView.focus({ preventScroll: true });
 }
 
 function showConfirmation() {

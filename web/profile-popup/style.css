@@ -2,7 +2,7 @@
 * { box-sizing: border-box; }
 html, body, main { width: 100%; height: 100%; margin: 0; background: transparent; }
 body { overflow: hidden; padding: 4px; background: transparent; user-select: none; }
-.panel { width: 100%; height: 100%; border: 1px solid #686e75; border-radius: 8px; background: #454a50; color-scheme: dark; box-shadow: 0 4px 14px rgb(0 0 0 / 24%); }
+.panel { width: 100%; height: 100%; border: 1px solid #686e75; border-radius: 8px; background: #454a50; color-scheme: dark; box-shadow: 0 2px 6px rgb(0 0 0 / 16%); }
 .menu { display: flex; flex-direction: column; padding: 4px; }
 button { min-height: 34px; border: 0; border-radius: 5px; background: transparent; color: #f4f5f5; font: 13px "Segoe UI", sans-serif; text-align: left; cursor: pointer; }
 button:hover, button:focus-visible { outline: none; background: #595f66; }
@@ -12,3 +12,7 @@ button:hover, button:focus-visible { outline: none; background: #595f66; }
 .actions { display: flex; justify-content: flex-end; gap: 8px; }
 .actions button { min-width: 72px; padding: 0 12px; text-align: center; background: #555b62; }
 .actions .danger { background: #a84747; }
+
+.menu:focus { outline: none; }
+#logoutItem { position: relative; }
+#logoutItem::before { content: ""; position: absolute; top: 0; left: 6px; right: 6px; height: 1px; background: rgb(255 255 255 / 12%); pointer-events: none; }

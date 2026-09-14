@@ -1131,7 +1131,9 @@ fn position_profile_popup(app: &AppHandle, popup: &WebviewWindow) -> tauri::Resu
     // The popup's panel ends 4px above its transparent window bottom.
     let avatar_bottom_inset = (6.0 * main.scale_factor()?).round() as i32;
     let panel_bottom_inset = (4.0 * popup.scale_factor()?).round() as i32;
-    let desired_x = main_position.x - popup_size.width as i32;
+    // Offset the 4px transparent panel inset to leave a visible 2px AppBar gap.
+    let popup_overlap = (2.0 * popup.scale_factor()?).round() as i32;
+    let desired_x = main_position.x - popup_size.width as i32 + popup_overlap;
     let desired_y = main_position.y + main_size.height as i32 - popup_size.height as i32
         - avatar_bottom_inset + panel_bottom_inset;
     let monitor = main.current_monitor()?.or(main.primary_monitor()?);
@@ -1244,11 +1246,22 @@ fn toggle_profile_popup(window: WebviewWindow) -> Result<bool, String> {
     Ok(true)
 }
 
+fn set_profile_popup_open(app: &AppHandle, open: bool) {
+    if let Some(main) = app.get_webview_window("main") {
+        if let Err(error) = main.eval(&format!(
+            "document.getElementById('profileButton')?.setAttribute('aria-expanded', '{open}')"
+        )) {
+            log::warn!("[profile-popup] failed to update opener state: {error}");
+        }
+    }
+}
+
 #[tauri::command]
 fn hide_profile_popup(app: AppHandle) -> Result<(), String> {
     if let Some(popup) = app.get_webview_window(PROFILE_POPUP_LABEL) {
         popup.hide().map_err(|e| e.to_string())?;
     }
+    set_profile_popup_open(&app, false);
     Ok(())
 }
 
@@ -1892,6 +1905,9 @@ pub fn run() {
          */
         .on_window_event(|window, event| {
             if window.label() == PROFILE_POPUP_LABEL {
+                if let WindowEvent::Focused(focused) = event {
+                    set_profile_popup_open(window.app_handle(), *focused);
+                }
                 if let WindowEvent::Focused(false) = event {
                     if !window.is_visible().unwrap_or(false) {
                         log::info!("[profile-popup] ignored blur while hidden");

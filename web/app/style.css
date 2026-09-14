@@ -138,7 +138,8 @@ button { font: inherit; }
   cursor: pointer;
 }
 
-.profile-avatar:hover {
+.profile-avatar:hover,
+.profile-avatar[aria-expanded="true"] {
   --profile-stroke: #97d6b4;
   --profile-start: #83c7a2;
   --profile-end: #75b994;

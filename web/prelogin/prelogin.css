@@ -65,8 +65,8 @@ body {
 
 .profile-avatar {
   --profile-stroke: #828a92;
-  --profile-start: rgb(49 55 63 / 62%);
-  --profile-end: rgb(20 24 29 / 76%);
+  --profile-start: #a0a8af;
+  --profile-end: #858f98;
   position: relative;
   display: grid;
   width: 28px;
@@ -82,8 +82,8 @@ body {
 
 .profile-avatar:hover {
   --profile-stroke: #a2abb3;
-  --profile-start: rgb(59 66 75 / 72%);
-  --profile-end: rgb(25 29 35 / 86%);
+  --profile-start: #b0b8bf;
+  --profile-end: #959fa8;
 }
 
 /* One antialiased contour for both the fill and the 1px outline. */
@@ -96,20 +96,11 @@ body {
   pointer-events: none;
 }
 
-.profile-frame circle { stroke: var(--profile-stroke); }
+.profile-outline { stroke: var(--profile-stroke); }
 .profile-frame stop:first-child { stop-color: var(--profile-start); }
 .profile-frame stop:last-child { stop-color: var(--profile-end); }
 
 .profile-avatar:focus-visible {
   outline: 2px solid #63d69d;
   outline-offset: 2px;
-}
-
-.profile-icon {
-  position: relative;
-  pointer-events: none;
-  display: block;
-  width: 20px;
-  height: 20px;
-  overflow: visible;
 }
