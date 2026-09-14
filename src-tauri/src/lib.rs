@@ -9,7 +9,7 @@ use tauri::webview::PageLoadEvent;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, LogicalSize, Manager, PhysicalPosition, Url, WebviewUrl, WebviewWindow,
+    AppHandle, Manager, PhysicalPosition, Url, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder, WindowEvent,
 };
 use tauri_plugin_log::{Target, TargetKind};
@@ -194,14 +194,14 @@ fn set_login_window_mode(window: &WebviewWindow, mode: LoginPresentationMode) ->
     window.set_minimizable(true)?;
     window.set_closable(true)?;
     #[cfg(target_os = "windows")]
-    let footer_height = if decorations && !is_logging_out() { login_footer::HEIGHT } else { 0.0 };
+    {
+        login_footer::set_outer_size(window)?;
+        login_footer::set_visible(window, decorations && !is_logging_out())?;
+    }
     #[cfg(not(target_os = "windows"))]
-    let footer_height = 0.0;
-    window.set_size(LogicalSize::new(420.0, 500.0 + footer_height))?;
-    #[cfg(target_os = "windows")]
-    login_footer::set_visible(window, footer_height > 0.0)?;
+    window.set_size(tauri::LogicalSize::new(440.0, 600.0))?;
     log::info!(
-        "[auth-window] mode={} decorations={} content=420x500 maximizable=false",
+        "[auth-window] mode={} decorations={} outer=440x600 maximizable=false",
         if decorations {
             "EXTERNAL_AUTH"
         } else {
@@ -1613,7 +1613,7 @@ fn show_or_create_login_window(app: &AppHandle, origin: &str) -> tauri::Result<(
     startup_trace::mark("login.build.begin");
     let login_window = WebviewWindowBuilder::new(app, LOGIN_WINDOW_LABEL, initial_url)
         .title("MonaHub 로그인")
-        .inner_size(420.0, 500.0)
+        .inner_size(440.0, 600.0)
         .resizable(false)
         .maximizable(false)
         .minimizable(true)

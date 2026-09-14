@@ -24,6 +24,8 @@ use windows::{
 };
 
 pub const HEIGHT: f64 = 56.0;
+pub const OUTER_WIDTH: f64 = 440.0;
+pub const OUTER_HEIGHT: f64 = 600.0;
 const BUTTON_ID: usize = 0x4d01;
 const SUBCLASS_ID: usize = 0x4d02;
 const WM_LAYOUT_WEBVIEW: u32 = WM_APP + 0x4d;
@@ -34,33 +36,38 @@ struct Footer {
     label: HWND,
     button: HWND,
     font: HFONT,
+    visible: bool,
 }
 
 unsafe fn layout(footer: &mut Footer) {
     let scale = GetDpiForWindow(HWND(footer.window.hwnd().unwrap_or_default().0)) as f64 / 96.0;
     let px = |value: f64| (value * scale).round() as i32;
-    let width = footer
+    let size = footer
         .window
         .inner_size()
-        .map(|s| s.width as i32)
-        .unwrap_or(px(420.0));
+        .unwrap_or(tauri::PhysicalSize::new(
+            px(OUTER_WIDTH) as u32,
+            px(OUTER_HEIGHT) as u32,
+        ));
+    let width = size.width as i32;
+    let top = size.height as i32 - px(HEIGHT);
     let _ = SetWindowPos(
         footer.label,
         Some(HWND_BOTTOM),
         0,
-        px(500.0),
+        top,
         width,
         px(HEIGHT),
         SWP_NOACTIVATE,
     );
     let _ = SetWindowPos(
         footer.button,
-        None,
+        Some(HWND_TOP),
         width - px(140.0),
-        px(512.0),
+        top + px(12.0),
         px(124.0),
         px(32.0),
-        SWP_NOZORDER | SWP_NOACTIVATE,
+        SWP_NOACTIVATE,
     );
     let next = CreateFontW(
         -px(13.0),
@@ -235,7 +242,18 @@ unsafe extern "system" fn procedure(
         WM_LAYOUT_WEBVIEW => {
             let window = (*(data as *const Footer)).window.clone();
             let _ = content_bounds(&window);
+            // Repaint after WebView bounds and z-order settle, even when the
+            // mouse never enters the footer.
+            let _ = RedrawWindow(
+                Some(hwnd),
+                None,
+                None,
+                RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW,
+            );
             return LRESULT(0);
+        }
+        WM_SHOWWINDOW if wp.0 != 0 => {
+            let _ = PostMessageW(Some(hwnd), WM_LAYOUT_WEBVIEW, WPARAM(0), LPARAM(0));
         }
         WM_NCDESTROY => {
             let _ = RemoveWindowSubclass(hwnd, Some(procedure), SUBCLASS_ID);
@@ -317,7 +335,7 @@ pub fn install(window: &WebviewWindow) -> tauri::Result<()> {
             WINDOW_EX_STYLE::default(),
             w!("STATIC"),
             w!("MonaHub"),
-            WS_CHILD,
+            WS_CHILD | WS_CLIPSIBLINGS,
             0,
             0,
             0,
@@ -332,7 +350,7 @@ pub fn install(window: &WebviewWindow) -> tauri::Result<()> {
             WINDOW_EX_STYLE::default(),
             w!("BUTTON"),
             w!("로그인 처음으로"),
-            WS_CHILD | WS_TABSTOP,
+            WS_CHILD | WS_TABSTOP | WS_CLIPSIBLINGS,
             0,
             0,
             0,
@@ -348,6 +366,7 @@ pub fn install(window: &WebviewWindow) -> tauri::Result<()> {
             label,
             button,
             font: HFONT::default(),
+            visible: false,
         });
         layout(&mut footer);
         let data = Box::into_raw(footer);
@@ -392,16 +411,32 @@ pub fn install(window: &WebviewWindow) -> tauri::Result<()> {
 }
 
 fn content_bounds(window: &WebviewWindow) -> tauri::Result<()> {
+    let size = window.inner_size()?;
+    let scale = window.scale_factor()?;
+    let mut data = 0;
+    let visible = unsafe {
+        windows::Win32::UI::Shell::GetWindowSubclass(
+            HWND(window.hwnd()?.0),
+            Some(procedure),
+            SUBCLASS_ID,
+            Some(&mut data),
+        )
+        .as_bool()
+            && (*(data as *const Footer)).visible
+    };
     let webview: &tauri::Webview = window.as_ref();
     webview.set_auto_resize(false)?;
     webview.set_bounds(tauri::Rect {
         position: LogicalPosition::new(0.0, 0.0).into(),
-        size: LogicalSize::new(420.0, 500.0).into(),
+        size: LogicalSize::new(
+            size.width as f64 / scale,
+            (size.height as f64 / scale - if visible { HEIGHT } else { 0.0 }).max(1.0),
+        )
+        .into(),
     })
 }
 
 pub fn set_visible(window: &WebviewWindow, visible: bool) -> tauri::Result<()> {
-    content_bounds(window)?;
     let window = window.clone();
     window.clone().run_on_main_thread(move || unsafe {
         if let Ok(hwnd) = window.hwnd() {
@@ -415,11 +450,36 @@ pub fn set_visible(window: &WebviewWindow, visible: bool) -> tauri::Result<()> {
             .as_bool()
             {
                 let footer = &mut *(data as *mut Footer);
+                footer.visible = visible;
                 layout(footer);
-                for control in [footer.label, footer.button] {
+                let controls = [footer.label, footer.button];
+                for control in controls {
                     let _ = ShowWindow(control, if visible { SW_SHOWNA } else { SW_HIDE });
                     let _ = InvalidateRect(Some(control), None, false);
                 }
+                let _ = PostMessageW(Some(HWND(hwnd.0)), WM_LAYOUT_WEBVIEW, WPARAM(0), LPARAM(0));
+            }
+        }
+    })
+}
+
+/// Keep the same outer dimensions with either native or HTML title bars.
+pub fn set_outer_size(window: &WebviewWindow) -> tauri::Result<()> {
+    let window = window.clone();
+    window.clone().run_on_main_thread(move || unsafe {
+        if let Ok(hwnd) = window.hwnd() {
+            let hwnd = HWND(hwnd.0);
+            let scale = GetDpiForWindow(hwnd) as f64 / 96.0;
+            if let Err(error) = SetWindowPos(
+                hwnd,
+                None,
+                0,
+                0,
+                (OUTER_WIDTH * scale).round() as i32,
+                (OUTER_HEIGHT * scale).round() as i32,
+                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+            ) {
+                log::error!("[auth-window] outer size failed: {error}");
             }
         }
     })
