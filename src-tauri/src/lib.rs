@@ -1127,15 +1127,15 @@ fn position_profile_popup(app: &AppHandle, popup: &WebviewWindow) -> tauri::Resu
     let main_position = main.outer_position()?;
     let main_size = main.outer_size()?;
     let popup_size = popup.outer_size()?;
-    // Align the panel border with the avatar bottom (app CSS: 6px bottom inset).
+    // The docked AppBar ends at the taskbar edge; leave a visible 2px gap.
     // The popup's panel ends 4px above its transparent window bottom.
-    let avatar_bottom_inset = (6.0 * main.scale_factor()?).round() as i32;
+    let taskbar_gap = (2.0 * main.scale_factor()?).round() as i32;
     let panel_bottom_inset = (4.0 * popup.scale_factor()?).round() as i32;
     // Offset the 4px transparent panel inset to leave a visible 2px AppBar gap.
     let popup_overlap = (2.0 * popup.scale_factor()?).round() as i32;
     let desired_x = main_position.x - popup_size.width as i32 + popup_overlap;
     let desired_y = main_position.y + main_size.height as i32 - popup_size.height as i32
-        - avatar_bottom_inset + panel_bottom_inset;
+        - taskbar_gap + panel_bottom_inset;
     let monitor = main.current_monitor()?.or(main.primary_monitor()?);
     let (x, y) = if let Some(monitor) = monitor {
         let work_position = monitor.position();
