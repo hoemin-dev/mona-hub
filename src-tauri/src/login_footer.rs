@@ -128,23 +128,16 @@ unsafe fn paint(hwnd: HWND, font: HFONT, button: bool) {
         let pressed = state & BST_PUSHED != 0;
         let focused = state & BST_FOCUS != 0;
         let fill = CreateSolidBrush(if pressed {
-            rgb(231, 234, 238)
+            rgb(32, 91, 63)
         } else if hot {
-            rgb(241, 243, 245)
+            rgb(38, 108, 75)
+        } else if focused {
+            rgb(38, 108, 75)
         } else {
-            rgb(255, 255, 255)
+            rgb(47, 128, 89)
         });
-        let border = CreatePen(
-            PS_SOLID,
-            px(if focused { 2.0 } else { 1.0 }).max(1),
-            if focused {
-                rgb(76, 96, 116)
-            } else {
-                rgb(210, 215, 221)
-            },
-        );
         let old_brush = SelectObject(dc, fill.into());
-        let old_pen = SelectObject(dc, border.into());
+        let old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
         let inset = px(1.0).max(1);
         let _ = RoundRect(
             dc,
@@ -157,9 +150,8 @@ unsafe fn paint(hwnd: HWND, font: HFONT, button: bool) {
         );
         SelectObject(dc, old_pen);
         SelectObject(dc, old_brush);
-        let _ = DeleteObject(border.into());
         let _ = DeleteObject(fill.into());
-        SetTextColor(dc, rgb(55, 65, 76));
+        SetTextColor(dc, rgb(255, 255, 255));
         DrawTextW(
             dc,
             &mut "로그인 처음으로".encode_utf16().collect::<Vec<_>>(),
