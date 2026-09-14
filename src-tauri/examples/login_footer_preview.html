@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Offline footer fixture</title>
+<style>
+  body { margin: 30px; font: 15px/1.6 "Malgun Gothic", sans-serif; color: #252525; }
+  h1 { font-size: 26px; font-weight: 500; }
+  a { color: #0067b8; }
+  .space { height: 450px; }
+</style>
+<h1 id="heading">복구 화면 테스트</h1>
+<p>계정 정보를 사용하지 않는 로컬 테스트 화면입니다.</p>
+<a href="#details">세부 정보로 이동</a>
+<div class="space"></div>
+<p id="details">스크롤해도 MonaHub 컨트롤은 창 아래에 남아 있어야 합니다.</p>
+<script>
+if (location.search === '?start') {
+  document.getElementById('heading').textContent = '로그인 시작 화면으로 복귀했습니다';
+}
+</script>
+</html>

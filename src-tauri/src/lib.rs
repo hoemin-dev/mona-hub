@@ -22,6 +22,9 @@ mod startup_trace;
 #[cfg(target_os = "windows")]
 mod appbar;
 
+#[cfg(target_os = "windows")]
+mod login_footer;
+
 const LOGIN_WINDOW_LABEL: &str = "login";
 const PROFILE_POPUP_LABEL: &str = "profile-popup";
 const WEB_APP_WINDOW_LABEL_PREFIX: &str = "webapp-";
@@ -190,9 +193,15 @@ fn set_login_window_mode(window: &WebviewWindow, mode: LoginPresentationMode) ->
     window.set_maximizable(false)?;
     window.set_minimizable(true)?;
     window.set_closable(true)?;
-    window.set_size(LogicalSize::new(420.0, 500.0))?;
+    #[cfg(target_os = "windows")]
+    let footer_height = if decorations && !is_logging_out() { login_footer::HEIGHT } else { 0.0 };
+    #[cfg(not(target_os = "windows"))]
+    let footer_height = 0.0;
+    window.set_size(LogicalSize::new(420.0, 500.0 + footer_height))?;
+    #[cfg(target_os = "windows")]
+    login_footer::set_visible(window, footer_height > 0.0)?;
     log::info!(
-        "[auth-window] mode={} decorations={} size=420x500 maximizable=false",
+        "[auth-window] mode={} decorations={} content=420x500 maximizable=false",
         if decorations {
             "EXTERNAL_AUTH"
         } else {
@@ -568,6 +577,21 @@ fn begin_access_login(window: WebviewWindow) -> Result<(), String> {
     set_auth_state(window.app_handle(), AUTH_WAITING_FOR_LOGIN);
     log::info!("[ACCESS] login started in login WebView");
     Ok(())
+}
+
+// Called only by app-owned native chrome; remote providers receive no new IPC.
+#[cfg(target_os = "windows")]
+fn restart_login(window: &WebviewWindow) -> Result<(), String> {
+    if window.label() != LOGIN_WINDOW_LABEL || is_logging_out() {
+        return Err("현재는 로그인을 다시 시작할 수 없습니다.".into());
+    }
+    let url = resolved_login_start_url(window.app_handle())
+        .ok_or("로그인 시작 주소를 찾지 못했습니다.")?;
+    // Clear the identity generation so a late completion cannot win over reset.
+    set_auth_state(window.app_handle(), AUTH_IDLE);
+    window.navigate(url).map_err(|error| error.to_string())?;
+    set_login_window_local_mode(window).map_err(|error| error.to_string())?;
+    window.set_focus().map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1588,7 +1612,7 @@ fn show_or_create_login_window(app: &AppHandle, origin: &str) -> tauri::Result<(
     });
     startup_trace::mark("login.build.begin");
     let login_window = WebviewWindowBuilder::new(app, LOGIN_WINDOW_LABEL, initial_url)
-        .title("MONA-HUB 로그인")
+        .title("MonaHub 로그인")
         .inner_size(420.0, 500.0)
         .resizable(false)
         .maximizable(false)
@@ -1599,6 +1623,13 @@ fn show_or_create_login_window(app: &AppHandle, origin: &str) -> tauri::Result<(
         .skip_taskbar(false)
         .visible(false)
         .build()?;
+    #[cfg(target_os = "windows")]
+    login_footer::install(&login_window)?;
+    if let Ok(url) = login_window.url() {
+        if let Some(mode) = login_presentation_mode(&url) {
+            set_login_window_mode(&login_window, mode)?;
+        }
+    }
     startup_trace::mark("login.build.end");
     if let Ok(url) = login_window.url() {
         log::info!(
