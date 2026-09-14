@@ -11,8 +11,9 @@ checks the version-resource ProductName of exactly `$INSTDIR\app.exe`. Only
 installation with a nonzero exit code. No wildcard or recursive deletion is used.
 
 After installation, existing HKCU Run/RunOnce commands whose executable token
-matches the old full path are rewritten, preserving arguments. No autostart entry
-is created. Links in the start-menu root/configured folder, desktop and startup
+matches the old full path are rewritten, preserving arguments. The automatic-start
+setting added afterward also writes HKCU Run `MONA-HUB` by default at installation
+and removes it at uninstall. Links in the start-menu root/configured folder, desktop and startup
 folder are checked by target; old targets and explicit old executable icons are
 updated. Tauri continues to write the uninstall entry, DisplayIcon and
 MainBinaryName using the new name.

@@ -136,6 +136,8 @@
   !insertmacro MonaMigrateLinks "$SMPROGRAMS\$AppStartMenuFolder" startmenufolder
   !insertmacro MonaMigrateLinks "$DESKTOP" desktop
   !insertmacro MonaMigrateLinks "$SMSTARTUP" startup
+  ; Per-user default: no elevation and no Startup-folder shortcut.
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "MONA-HUB" '$\"$INSTDIR\${MAINBINARYNAME}.exe$\"'
   Pop $9
   Pop $8
   Pop $7
@@ -145,4 +147,8 @@
   Pop $2
   Pop $1
   Pop $0
+!macroend
+
+!macro NSIS_HOOK_PREUNINSTALL
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "MONA-HUB"
 !macroend

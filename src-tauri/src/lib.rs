@@ -20,6 +20,9 @@ mod identity_session;
 mod startup_trace;
 
 #[cfg(target_os = "windows")]
+mod autostart;
+
+#[cfg(target_os = "windows")]
 mod appbar;
 
 #[cfg(target_os = "windows")]
@@ -1824,6 +1827,8 @@ pub fn run() {
             let quit_item = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
 
             let tray_menu = Menu::with_items(app, &[&login_item, &help_item, &quit_item])?;
+            #[cfg(target_os = "windows")]
+            autostart::add_menu(app.handle(), &tray_menu)?;
 
             /*
              * 시스템 트레이
@@ -1838,6 +1843,8 @@ pub fn run() {
                 .menu(&tray_menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id().as_ref() {
+                    #[cfg(target_os = "windows")]
+                    "windows-autostart" => autostart::toggle(app),
                     /*
                      * 로그인 창 열기
                      */
@@ -1917,6 +1924,8 @@ pub fn run() {
                  * 트레이 아이콘 왼쪽 클릭
                  */
                 .on_tray_icon_event(|tray, event| {
+                    #[cfg(target_os = "windows")]
+                    autostart::sync(tray.app_handle());
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
