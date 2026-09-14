@@ -1127,9 +1127,13 @@ fn position_profile_popup(app: &AppHandle, popup: &WebviewWindow) -> tauri::Resu
     let main_position = main.outer_position()?;
     let main_size = main.outer_size()?;
     let popup_size = popup.outer_size()?;
-    let footer = (38.0 * main.scale_factor()?).round() as i32;
+    // Align the panel border with the avatar bottom (app CSS: 6px bottom inset).
+    // The popup's panel ends 4px above its transparent window bottom.
+    let avatar_bottom_inset = (6.0 * main.scale_factor()?).round() as i32;
+    let panel_bottom_inset = (4.0 * popup.scale_factor()?).round() as i32;
     let desired_x = main_position.x - popup_size.width as i32;
-    let desired_y = main_position.y + main_size.height as i32 - popup_size.height as i32 - footer;
+    let desired_y = main_position.y + main_size.height as i32 - popup_size.height as i32
+        - avatar_bottom_inset + panel_bottom_inset;
     let monitor = main.current_monitor()?.or(main.primary_monitor()?);
     let (x, y) = if let Some(monitor) = monitor {
         let work_position = monitor.position();
@@ -1169,6 +1173,8 @@ fn profile_popup(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     )
     .title("MONA Hub 프로필")
     .inner_size(176.0, 126.0)
+    .transparent(true)
+    .background_color(tauri::window::Color(0, 0, 0, 0))
     .resizable(false)
     .decorations(false)
     .always_on_top(true)
