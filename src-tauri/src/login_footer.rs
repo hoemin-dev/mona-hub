@@ -23,9 +23,9 @@ use windows::{
     },
 };
 
-pub const HEIGHT: f64 = 56.0;
-pub const OUTER_WIDTH: f64 = 440.0;
-pub const OUTER_HEIGHT: f64 = 600.0;
+pub const HEIGHT: f64 = 48.0;
+pub const OUTER_WIDTH: f64 = 420.0;
+pub const OUTER_HEIGHT: f64 = 480.0;
 const BUTTON_ID: usize = 0x4d01;
 const SUBCLASS_ID: usize = 0x4d02;
 const WM_LAYOUT_WEBVIEW: u32 = WM_APP + 0x4d;
@@ -64,7 +64,7 @@ unsafe fn layout(footer: &mut Footer) {
         footer.button,
         Some(HWND_TOP),
         width - px(140.0),
-        top + px(12.0),
+        top + px((HEIGHT - 32.0) / 2.0),
         px(124.0),
         px(32.0),
         SWP_NOACTIVATE,

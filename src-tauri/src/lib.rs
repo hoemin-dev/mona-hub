@@ -199,9 +199,9 @@ fn set_login_window_mode(window: &WebviewWindow, mode: LoginPresentationMode) ->
         login_footer::set_visible(window, decorations && !is_logging_out())?;
     }
     #[cfg(not(target_os = "windows"))]
-    window.set_size(tauri::LogicalSize::new(440.0, 600.0))?;
+    window.set_size(tauri::LogicalSize::new(420.0, 480.0))?;
     log::info!(
-        "[auth-window] mode={} decorations={} outer=440x600 maximizable=false",
+        "[auth-window] mode={} decorations={} outer=420x480 maximizable=false",
         if decorations {
             "EXTERNAL_AUTH"
         } else {
@@ -1613,7 +1613,7 @@ fn show_or_create_login_window(app: &AppHandle, origin: &str) -> tauri::Result<(
     startup_trace::mark("login.build.begin");
     let login_window = WebviewWindowBuilder::new(app, LOGIN_WINDOW_LABEL, initial_url)
         .title("MonaHub 로그인")
-        .inner_size(440.0, 600.0)
+        .inner_size(420.0, 480.0)
         .resizable(false)
         .maximizable(false)
         .minimizable(true)
