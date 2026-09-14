@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "test:webview": "npm --prefix tools/webview-test run tauri:dev",
     "web:dev": "node scripts/dev-server.cjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

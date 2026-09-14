@@ -1,0 +1,15 @@
+[package]
+name = "mona-webview-test"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+tauri = { version = "2.11.3", features = [] }
+log = "0.4"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+webview2-com = "0.38"

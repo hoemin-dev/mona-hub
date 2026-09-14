@@ -1,4 +1,4 @@
-//! Temporary local harness only. Never attach capabilities to these labels.
+//! Standalone local harness only. Never attach capabilities to these labels.
 #[cfg(target_os = "windows")]
 use std::sync::{atomic::AtomicBool, Arc};
 use std::{
@@ -249,50 +249,12 @@ mod tests {
         }
     }
     #[test]
-    fn exact_launch_pair_and_caller() {
-        let caller = Url::parse("https://mona-hub.pages.dev/app/").unwrap();
-        assert!(crate::validate_web_app_request("main", &caller, "popup-test", URL).is_ok());
-        for (id, url) in [
-            ("pdfys", URL),
-            ("popup-test", crate::PDFYS_URL),
-            ("popup-test", "http://localhost:8088/"),
-            ("popup-test", "http://127.0.0.1:8088"),
-            ("popup-test", "http://127.0.0.1:8088/?x=1"),
-            ("popup-test", "http://127.0.0.1:8089/"),
-        ] {
-            assert!(crate::validate_web_app_request("main", &caller, id, url).is_err());
-        }
-        assert!(crate::validate_web_app_request(LABEL, &caller, "popup-test", URL).is_err());
-        assert!(crate::validate_web_app_request(
-            "main",
-            &Url::parse(URL).unwrap(),
-            "popup-test",
-            URL
-        )
-        .is_err());
-    }
-    #[test]
     fn diagnostic_redaction() {
         for url in [
             "http://user:secret@127.0.0.1:8088/secret?secret#secret",
             "data:text/plain,secret",
         ] {
             assert!(!safe_url(&Url::parse(url).unwrap()).contains("secret"));
-        }
-    }
-    #[test]
-    fn harness_has_no_capabilities() {
-        for source in [
-            include_str!("../capabilities/default.json"),
-            include_str!("../capabilities/pdfys-launcher.json"),
-            include_str!("../capabilities/remote-auth.json"),
-            include_str!("../capabilities/remote-login.json"),
-        ] {
-            let cap: serde_json::Value = serde_json::from_str(source).unwrap();
-            assert!(cap.get("webviews").is_none());
-            for window in cap["windows"].as_array().unwrap() {
-                assert!(["main", "login", "profile-popup"].contains(&window.as_str().unwrap()));
-            }
         }
     }
 }

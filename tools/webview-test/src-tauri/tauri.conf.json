@@ -1,0 +1,15 @@
+{
+  "productName": "WebView Test",
+  "version": "0.1.0",
+  "identifier": "kr.co.monas.webviewtest",
+  "build": {
+    "beforeDevCommand": "npm run web:dev",
+    "devUrl": "http://127.0.0.1:8088/",
+    "frontendDist": "../web"
+  },
+  "app": {
+    "windows": [],
+    "security": { "capabilities": [], "csp": null }
+  },
+  "bundle": { "active": false }
+}

@@ -3,8 +3,6 @@ const mockApps = Object.freeze([
   Object.freeze({ id: "radar", name: "MonaRadar", shortLabel: "Radar", icon: "./icons/radar.svg", url: "#radar" }),
   Object.freeze({ id: "flex", name: "MonaFlex", shortLabel: "Flex", icon: "./icons/flex.svg", url: "#flex" }),
   Object.freeze({ id: "admin", name: "MonaHub Admin", shortLabel: "Admin", icon: "./icons/admin.svg", url: "#admin" }),
-  // TEMPORARY local compatibility harness; not a production application.
-  Object.freeze({ id: "popup-test", name: "Popup Test", shortLabel: "Test", icon: "./icons/admin.svg", url: "http://127.0.0.1:8088/" })
 ]);
 
 const appList = document.getElementById("appList");
@@ -104,14 +102,14 @@ mockApps.forEach(app => {
   label.textContent = app.shortLabel;
 
   button.append(icon, label);
-  button.addEventListener("click", () => ["pdfys", "popup-test"].includes(app.id)
+  button.addEventListener("click", () => app.id === "pdfys"
     ? openWebApp(app)
     : selectApp(app, button));
   appList.append(button);
 });
 
 async function openWebApp(app) {
-  const logTag = app.id === "popup-test" ? "[popup-test]" : "[PDFYS]";
+  const logTag = "[PDFYS]";
   const context = {
     command: "open_web_app",
     href: window.location.origin + window.location.pathname,

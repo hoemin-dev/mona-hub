@@ -19,9 +19,6 @@ mod acdc_identity;
 mod identity_session;
 mod startup_trace;
 
-// TEMPORARY local WebView compatibility harness, with no native IPC capability.
-mod popup_test;
-
 #[cfg(target_os = "windows")]
 mod appbar;
 
@@ -292,8 +289,7 @@ fn validate_web_app_request(label: &str, caller: &Url, id: &str, url: &str) -> R
         return Err("PDFYS can only be opened from the trusted main /app/ page.".into());
     }
     // Compare the original string before parsing: aliases, queries and fragments are rejected.
-    if !((id == "pdfys" && url == PDFYS_URL)
-        || (id == "popup-test" && url == popup_test::URL)) {
+    if !(id == "pdfys" && url == PDFYS_URL) {
         return Err("Only the configured PDFYS app and URL are allowed.".into());
     }
     Ok(())
@@ -320,7 +316,7 @@ fn close_managed_web_app_windows(app: &AppHandle) {
 
 #[tauri::command]
 async fn open_web_app(window: WebviewWindow, id: String, url: String) -> Result<(), String> {
-    let tag = if id == "popup-test" { "popup-test" } else { "PDFYS" };
+    let tag = "PDFYS";
     log::info!("[{tag}] command entered");
     // Async commands run off the Windows UI thread. Serialize lookup + build, not just clicks.
     log::info!("[{tag}] window lock waiting");
@@ -331,7 +327,7 @@ async fn open_web_app(window: WebviewWindow, id: String, url: String) -> Result<
     let state = AUTH_FLOW_STATE.load(Ordering::Acquire);
     log::info!("[{tag}] auth state={} ({})", state, auth_state_name(state));
     log::info!("[{tag}] validation start target_matches={}",
-        (id == "pdfys" && url == PDFYS_URL) || (id == "popup-test" && url == popup_test::URL));
+        id == "pdfys" && url == PDFYS_URL);
     validate_web_app_request(window.label(), &caller, &id, &url)
         .map_err(|error| pdfys_error("caller/id/url validation", error))?;
     log::info!("[{tag}] caller/id/url validation passed");
@@ -339,11 +335,7 @@ async fn open_web_app(window: WebviewWindow, id: String, url: String) -> Result<
         log::warn!("[{tag}] auth rejected");
         return Err("PDFYS requires an authenticated session.".into());
     }
-    let (label, title) = if id == "popup-test" {
-        (popup_test::LABEL, "Popup Test (local harness)")
-    } else {
-        (PDFYS_WINDOW_LABEL, "PDFYS")
-    };
+    let (label, title) = (PDFYS_WINDOW_LABEL, "PDFYS");
     log::info!("[web-app] validated target label={label}");
     let app = window.app_handle();
     let pdfys = if let Some(existing) = app.get_webview_window(label) {
@@ -365,11 +357,6 @@ async fn open_web_app(window: WebviewWindow, id: String, url: String) -> Result<
         .skip_taskbar(false)
         .always_on_top(false)
         .visible(false);
-        let builder = if id == "popup-test" {
-            popup_test::configure(builder, app.clone(), label.to_string())
-        } else {
-            builder
-        };
         let created = builder.build()
         .map_err(|error| pdfys_error("build", error))?;
         log::info!("[{tag}] build success");

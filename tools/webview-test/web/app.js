@@ -96,6 +96,9 @@ button("popup-controls", "Same-origin popup", () => openPopup(`${LOCAL}/popup.ht
 button("popup-controls", "Cross-origin · example.com", () => openPopup(CROSS, "_blank"));
 button("popup-controls", "about:blank", () => openPopup("about:blank", "_blank"));
 button("popup-controls", "거부 정책: 다른 loopback port", () => openPopup("http://127.0.0.1:8089/", "_blank"));
+button("popup-controls", "HTTP redirect → child", () => openPopup(`${LOCAL}/redirect`, "_blank"));
+button("popup-controls", "HTTP redirect → denied port", () => openPopup(`${LOCAL}/redirect-denied`, "_blank"));
+button("popup-controls", "선택 child navigation", () => { selected().ref.location.href = `${LOCAL}/popup.html?navigated=1`; });
 button("message-controls", "opener 존재 확인", () => log("EVENT", "window.opener", `exists=${!!window.opener}`));
 button("message-controls", "opener → 선택 popup postMessage", () => {
   const entry = selected();

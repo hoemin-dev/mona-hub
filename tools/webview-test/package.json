@@ -1,0 +1,9 @@
+{
+  "name": "mona-webview-test",
+  "private": true,
+  "scripts": {
+    "tauri:dev": "tauri dev",
+    "web:dev": "node server.cjs",
+    "check": "node --check server.cjs && node --check web/app.js"
+  }
+}
