@@ -56,28 +56,49 @@ body {
 }
 
 .profile-area {
+  /* Center against the full AppBar width, including its 1px left border. */
+  width: calc(100% + 1px);
+  margin-left: -1px;
   align-items: end;
   padding-bottom: 6px;
 }
 
 .profile-avatar {
+  --profile-stroke: #828a92;
+  --profile-start: rgb(49 55 63 / 62%);
+  --profile-end: rgb(20 24 29 / 76%);
+  position: relative;
   display: grid;
   width: 28px;
   height: 28px;
   place-items: center;
   padding: 0;
-  border: 1px solid #828a92;
+  border: 0;
   border-radius: 50%;
-  background: linear-gradient(145deg, rgb(49 55 63 / 62%), rgb(20 24 29 / 76%));
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 5%);
+  background: transparent;
   color: inherit;
   cursor: pointer;
 }
 
 .profile-avatar:hover {
-  border-color: #a2abb3;
-  background: linear-gradient(145deg, rgb(59 66 75 / 72%), rgb(25 29 35 / 86%));
+  --profile-stroke: #a2abb3;
+  --profile-start: rgb(59 66 75 / 72%);
+  --profile-end: rgb(25 29 35 / 86%);
 }
+
+/* One antialiased contour for both the fill and the 1px outline. */
+.profile-frame {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 28px;
+  height: 28px;
+  pointer-events: none;
+}
+
+.profile-frame circle { stroke: var(--profile-stroke); }
+.profile-frame stop:first-child { stop-color: var(--profile-start); }
+.profile-frame stop:last-child { stop-color: var(--profile-end); }
 
 .profile-avatar:focus-visible {
   outline: 2px solid #63d69d;
@@ -85,6 +106,8 @@ body {
 }
 
 .profile-icon {
+  position: relative;
+  pointer-events: none;
   display: block;
   width: 20px;
   height: 20px;
