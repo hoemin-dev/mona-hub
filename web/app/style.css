@@ -122,9 +122,9 @@ button { font: inherit; }
 }
 
 .profile-avatar {
-  --profile-stroke: #75b994;
-  --profile-start: #3d775a;
-  --profile-end: #2d5843;
+  --profile-stroke: #86c9a5;
+  --profile-start: #75b994;
+  --profile-end: #68ad87;
   position: relative;
   display: grid;
   width: 28px;
@@ -139,9 +139,9 @@ button { font: inherit; }
 }
 
 .profile-avatar:hover {
-  --profile-stroke: #75b994;
-  --profile-start: #478466;
-  --profile-end: #478466;
+  --profile-stroke: #97d6b4;
+  --profile-start: #83c7a2;
+  --profile-end: #75b994;
 }
 
 /* One antialiased contour for both the fill and the 1px outline. */
