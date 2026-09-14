@@ -1,4 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#293239" stroke="#293239" stroke-width="0.55">
-  <circle cx="12" cy="6.3" r="3.15"/>
-  <path d="M9.55 9.2c.55.45 1.4.7 2.45.7s1.9-.25 2.45-.7c.18 1.2.7 2.08 1.6 2.72 1.55 1.1 2.45 2.88 2.72 5.63.1.95-.65 1.78-1.6 1.78H6.83c-.95 0-1.7-.83-1.6-1.78.27-2.75 1.17-4.53 2.72-5.63.9-.64 1.42-1.52 1.6-2.72Z" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 22" fill="#293239">
+  <!-- Original MONA Hub artwork; no third-party icon assets. -->
+  <circle cx="10" cy="5" r="4"/>
+  <path d="M0 22v-3c0-4.5 4.5-7 10-7s10 2.5 10 7v3Z"/>
 </svg>

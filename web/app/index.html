@@ -19,10 +19,16 @@
               <stop offset="0" />
               <stop offset="1" />
             </linearGradient>
+            <clipPath id="profileClip">
+              <circle cx="14" cy="14" r="13.5" />
+            </clipPath>
           </defs>
-          <circle cx="14" cy="14" r="13.5" fill="url(#profileBackground)" stroke-width="1" />
+          <circle cx="14" cy="14" r="13.5" fill="url(#profileBackground)" />
+          <g clip-path="url(#profileClip)">
+            <image href="../assets/icons/profile-active.svg" x="4" y="5" width="20" height="22" />
+          </g>
+          <circle class="profile-outline" cx="14" cy="14" r="13.5" stroke-width="1" />
         </svg>
-        <img class="profile-icon" src="../assets/icons/profile-active.svg" alt="" aria-hidden="true">
       </button>
     </div>
   </main>

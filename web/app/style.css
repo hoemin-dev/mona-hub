@@ -144,7 +144,7 @@ button { font: inherit; }
   --profile-end: #75b994;
 }
 
-/* One antialiased contour for both the fill and the 1px outline. */
+/* Clip the shoulders to the circle and paint the 1px outline above them. */
 .profile-frame {
   position: absolute;
   inset: 0;
@@ -154,21 +154,13 @@ button { font: inherit; }
   pointer-events: none;
 }
 
-.profile-frame circle { stroke: var(--profile-stroke); }
+.profile-outline { stroke: var(--profile-stroke); }
 .profile-frame stop:first-child { stop-color: var(--profile-start); }
 .profile-frame stop:last-child { stop-color: var(--profile-end); }
 
 .profile-avatar:focus-visible {
   outline: 2px solid #75d6a5;
   outline-offset: 2px;
-}
-
-.profile-icon {
-  position: relative;
-  pointer-events: none;
-  display: block;
-  width: 20px;
-  height: 20px;
 }
 
 @media (prefers-reduced-motion: no-preference) {
