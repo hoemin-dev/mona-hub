@@ -128,13 +128,13 @@ unsafe fn paint(hwnd: HWND, font: HFONT, button: bool) {
         let pressed = state & BST_PUSHED != 0;
         let focused = state & BST_FOCUS != 0;
         let fill = CreateSolidBrush(if pressed {
-            rgb(32, 91, 63)
+            rgb(65, 101, 81)
         } else if hot {
-            rgb(38, 108, 75)
+            rgb(76, 114, 93)
         } else if focused {
-            rgb(38, 108, 75)
+            rgb(76, 114, 93)
         } else {
-            rgb(47, 128, 89)
+            rgb(86, 126, 104)
         });
         let old_brush = SelectObject(dc, fill.into());
         let old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
