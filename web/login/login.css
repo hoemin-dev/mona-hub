@@ -38,7 +38,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-left: 8px;
+  padding-left: 8.5px;
   /*border-bottom: 1px solid #30353d;*/
   background: #1b1e24;
   -webkit-app-region: drag;
@@ -54,12 +54,12 @@ button {
 .titleset {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 6.5px;
 }
 
 .window-title {
   color: #8e979f;
-  font-size: 12.5px;
+  font-size: 12.8px;
   font-weight: 400;
   transform: translateY(-1px);
 }
@@ -81,6 +81,7 @@ button {
   color: #929ba3;
   cursor: pointer;
   -webkit-app-region: no-drag;
+  gap: 10px;
 }
 
 .window-control:hover {
@@ -94,8 +95,8 @@ button {
 }
 
 .window-control svg {
-  width: 17px;
-  height: 17px;
+  width: 18px;
+  height: 18px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.6;
@@ -103,14 +104,14 @@ button {
 }
 
 .minimize-icon {
-  width: 11px;
+  width: 10.5px;
   height: 1px;
   background: currentColor;
 }
 
 .maximize-icon {
-  width: 11px;
-  height: 11px;
+  width: 10.5px;
+  height: 10.5px;
   background: transparent;
   border: 1px solid #444;
 }
