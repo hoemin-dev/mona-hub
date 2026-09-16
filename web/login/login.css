@@ -51,11 +51,17 @@ button {
   flex-shrink: 0;
 }
 
+.titleset {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .window-title {
   color: #8e979f;
   font-size: 12px;
   font-weight: 400;
-  letter-spacing: 1.3px;
+  transform: translateY(-2px);
 }
 
 .window-controls {
