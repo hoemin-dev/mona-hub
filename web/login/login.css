@@ -40,13 +40,13 @@ button {
   justify-content: space-between;
   padding-left: 8px;
   /*border-bottom: 1px solid #30353d;*/
-  background: #1e2228;
+  background: #1b1e24;
   -webkit-app-region: drag;
 }
 
 .window-icon {
-  width: 16px;
-  height: 16px;
+  width: 15.5px;
+  height: 15.5px;
   object-fit: contain;
   flex-shrink: 0;
 }
@@ -54,12 +54,12 @@ button {
 .titleset {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
 }
 
 .window-title {
   color: #8e979f;
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 400;
   transform: translateY(-1px);
 }
@@ -103,14 +103,14 @@ button {
 }
 
 .minimize-icon {
-  width: 10px;
+  width: 11px;
   height: 1px;
   background: currentColor;
 }
 
 .maximize-icon {
-  width: 10px;
-  height: 10px;
+  width: 11px;
+  height: 11px;
   background: transparent;
   border: 1px solid #444;
 }
