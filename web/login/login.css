@@ -38,7 +38,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-left: 15px;
+  padding-left: 8px;
   /*border-bottom: 1px solid #30353d;*/
   background: #1e2228;
   -webkit-app-region: drag;
