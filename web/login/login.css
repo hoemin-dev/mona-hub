@@ -44,10 +44,17 @@ button {
   -webkit-app-region: drag;
 }
 
+.window-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
 .window-title {
   color: #8e979f;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 400;
   letter-spacing: 1.3px;
 }
 

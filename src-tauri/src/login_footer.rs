@@ -154,7 +154,7 @@ unsafe fn paint(hwnd: HWND, font: HFONT, button: bool) {
         SetTextColor(dc, rgb(255, 255, 255));
         DrawTextW(
             dc,
-            &mut "로그인 처음으로".encode_utf16().collect::<Vec<_>>(),
+            &mut "← 처음으로".encode_utf16().collect::<Vec<_>>(),
             &mut rect,
             DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
         );
@@ -173,7 +173,7 @@ unsafe fn paint(hwnd: HWND, font: HFONT, button: bool) {
         SetTextColor(dc, rgb(111, 120, 130));
         DrawTextW(
             dc,
-            &mut "비밀번호 초기화는 관리자에게 문의하세요.".encode_utf16().collect::<Vec<_>>(),
+            &mut "비밀번호 초기화는 관리자 문의(내선 2511)".encode_utf16().collect::<Vec<_>>(),
             &mut rect,
             DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
         );
