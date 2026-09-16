@@ -1615,7 +1615,7 @@ fn show_or_create_login_window(app: &AppHandle, origin: &str) -> tauri::Result<(
     });
     startup_trace::mark("login.build.begin");
     let login_window = WebviewWindowBuilder::new(app, LOGIN_WINDOW_LABEL, initial_url)
-        .title("MonaHub 로그인")
+        .title("MONA-HUB 로그인")
         .initialization_script(include_str!("login_viewport.js"))
         .inner_size(420.0, 480.0)
         .resizable(false)

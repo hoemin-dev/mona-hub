@@ -128,13 +128,13 @@ unsafe fn paint(hwnd: HWND, font: HFONT, button: bool) {
         let pressed = state & BST_PUSHED != 0;
         let focused = state & BST_FOCUS != 0;
         let fill = CreateSolidBrush(if pressed {
-            rgb(65, 101, 81)
+            rgb(50, 126, 92)
         } else if hot {
-            rgb(76, 114, 93)
+            rgb(54, 139, 101)
         } else if focused {
-            rgb(76, 114, 93)
+            rgb(54, 139, 101)
         } else {
-            rgb(86, 126, 104)
+            rgb(69, 156, 113)
         });
         let old_brush = SelectObject(dc, fill.into());
         let old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
@@ -173,7 +173,7 @@ unsafe fn paint(hwnd: HWND, font: HFONT, button: bool) {
         SetTextColor(dc, rgb(111, 120, 130));
         DrawTextW(
             dc,
-            &mut "MonaHub".encode_utf16().collect::<Vec<_>>(),
+            &mut "비밀번호 초기화는 관리자에게 문의하세요.".encode_utf16().collect::<Vec<_>>(),
             &mut rect,
             DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
         );
@@ -219,7 +219,7 @@ unsafe extern "system" fn procedure(
                 let _ = MessageBoxW(
                     Some(hwnd),
                     w!("로그인 시작 화면을 열지 못했습니다. 다시 시도해 주세요."),
-                    w!("MonaHub 로그인"),
+                    w!("MONA-HUB 로그인"),
                     MB_OK | MB_ICONERROR,
                 );
             }
