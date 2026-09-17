@@ -194,7 +194,7 @@ button {
 .login-action {
   display: grid;
   width: min(100%, 268px);
-  margin-top: 14px;
+  margin-top: 10px;
   justify-items: center;
 }
 
@@ -224,7 +224,7 @@ button {
 }
 
 .auth-note {
-  margin: 12px 0 0;
+  margin: 16px 0 0;
   color: #717b79;
   font-size: 12px;
   line-height: 1.5;
