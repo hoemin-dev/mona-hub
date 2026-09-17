@@ -45,8 +45,8 @@ button {
 }
 
 .window-icon {
-  width: 15.5px;
-  height: 15.5px;
+  width: 16px;
+  height: 16px;
   object-fit: contain;
   flex-shrink: 0;
 }
@@ -59,7 +59,7 @@ button {
 
 .window-title {
   color: #8e979f;
-  font-size: 13px;
+  font-size: 12.6px;
   font-weight: 400;
   transform: translateY(-1px);
 }
@@ -68,7 +68,7 @@ button {
   display: flex;
   align-self: stretch;
   -webkit-app-region: no-drag;
-  gap: 12px;
+  gap: 10px;
 }
 
 .window-control {
