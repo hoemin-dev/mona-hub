@@ -28,7 +28,19 @@ const authController = new AuthController(
 );
 
 // Read the identity already resolved by the native login gate. No HTTP request.
-void monaSession.resolve();
+void monaSession.resolve().then(async identity => {
+  // Native retains WAITING_FOR_MAIN until the document's PER session is ready.
+  // This acknowledges the cached identity, without another /api/me request.
+  if (!invoke) return;
+  // The hidden login WebView also briefly visits /app/ during Access redirects.
+  if (window.__TAURI__.window.getCurrentWindow().label !== "main") return;
+  try {
+    await invoke("session_ui_ready", { ready: Boolean(identity) });
+  } catch (error) {
+    console.error("[session] UI readiness acknowledgement failed", error);
+    window.location.replace(authConfig.preloginUrl);
+  }
+});
 window.addEventListener("pagehide", () => monaSession.clear());
 
 async function toggleProfileMenu() {
@@ -135,3 +147,4 @@ import { AuthController } from "../auth/auth-controller.js";
 import { authConfig } from "./config/environment.js";
 
 import { MonaSession } from "../auth/mona-session.js";
+import "../auth/session-loading.js";

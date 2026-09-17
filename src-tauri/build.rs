@@ -4,6 +4,7 @@ fn main() {
             tauri_build::AppManifest::new()
                 .commands(&[
                     "startup_rendered",
+                    "session_ui_ready",
                     "notify_login_page_ready",
                     "close_login_window",
                     "minimize_login_window",

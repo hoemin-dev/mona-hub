@@ -178,6 +178,55 @@ fn set_auth_state(app: &AppHandle, state: u8) {
         log::info!("[auth] state {}", auth_state_name(state));
     }
     sync_tray_auth_menu(app, state);
+    sync_session_loading(app);
+}
+
+fn session_is_loading(state: u8) -> bool {
+    matches!(state, AUTH_RESOLVING_IDENTITY | AUTH_WAITING_FOR_MAIN)
+}
+
+fn sync_session_loading(app: &AppHandle) {
+    if let Some(main) = app.get_webview_window("main") {
+        // Store a snapshot as well as dispatching: module loading may finish later.
+        let loading = session_is_loading(AUTH_FLOW_STATE.load(Ordering::Acquire));
+        let _ = main.eval(&format!(
+            "window.__monaSessionLoading={loading};window.dispatchEvent(new Event('mona:session-loading'));"
+        ));
+    }
+}
+
+#[tauri::command]
+async fn session_ui_ready(window: WebviewWindow, ready: bool) -> Result<(), String> {
+    // Failure can lazily create the login WebView. Leave synchronous IPC first.
+    let (tx, mut rx) = tauri::async_runtime::channel(1);
+    let app = window.app_handle().clone();
+    app.run_on_main_thread(move || {
+        let _ = tx.try_send(complete_session_ui(&window, ready));
+    }).map_err(|error| error.to_string())?;
+    rx.recv().await.ok_or_else(|| "session UI result unavailable".to_string())?
+}
+
+fn complete_session_ui(window: &WebviewWindow, ready: bool) -> Result<(), String> {
+    if window.label() != "main" || !is_access_app_url(&window.url().map_err(|_| "url unavailable")?) {
+        return Err("invalid session caller".into());
+    }
+    let state = AUTH_FLOW_STATE.load(Ordering::Acquire);
+    if state == AUTHENTICATED && ready {
+        sync_session_loading(window.app_handle());
+        return Ok(());
+    }
+    if state != AUTH_WAITING_FOR_MAIN {
+        return Err("session no longer pending".into());
+    }
+    if !ready {
+        identity_session::ui_failed(window.app_handle());
+        return Ok(());
+    }
+    set_auth_state(window.app_handle(), AUTHENTICATED);
+    if let Some(login) = window.app_handle().get_webview_window(LOGIN_WINDOW_LABEL) {
+        let _ = login.hide();
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -966,6 +1015,9 @@ fn log_auth_navigation(label: &str, event: &str, url: &Url, state: u8) {
 }
 
 fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadPayload<'_>) {
+    if window.label() == "main" && payload.event() == PageLoadEvent::Finished {
+        sync_session_loading(window.app_handle());
+    }
     if window.label() == LOGIN_WINDOW_LABEL
         && LOGIN_WINDOW_DESTROYING.load(Ordering::Acquire)
     {
@@ -1177,13 +1229,14 @@ fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadP
         && is_access_app_url(url)
     {
         if AUTH_FLOW_STATE.compare_exchange(state, AUTH_RESOLVING_IDENTITY, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+            sync_session_loading(window.app_handle());
             identity_session::start(window.app_handle());
         }
         return;
     }
 
     if label == "main" && state == AUTH_WAITING_FOR_MAIN && is_access_app_url(url) {
-        set_auth_state(window.app_handle(), AUTHENTICATED);
+        // session_ui_ready acknowledges the document's cached PER/session setup.
         log::info!("[ACCESS] protected app loaded in main WebView; hiding login window");
         if let Some(login) = window.app_handle().get_webview_window(LOGIN_WINDOW_LABEL) {
             if let Err(error) = login.hide() {
@@ -1820,6 +1873,7 @@ pub fn run() {
         .plugin(tauri::plugin::Builder::<tauri::Wry>::new("startup-after-single").setup(|_, _| { startup_trace::mark("single.setup.end; config-window-build.next"); Ok(()) }).build())
         .invoke_handler(tauri::generate_handler![
             startup_rendered,
+            session_ui_ready,
             notify_login_page_ready,
             close_login_window,
             minimize_login_window,

@@ -48,7 +48,14 @@ fn fail(app: &AppHandle, generation: u64, code: String) {
         let _ = set_login_window_local_mode(&login);
         let _ = login.navigate(app_url(LOGIN_START_PATH));
         let _ = login.show();
+    } else {
+        // Fast path has no login WebView yet; use the existing login entry point.
+        let _ = show_or_create_login_window(app, "session-ui-failed");
     }
+}
+pub fn ui_failed(app: &AppHandle) {
+    let generation = SESSION.lock().unwrap().generation;
+    fail(app, generation, "identity-ui-unavailable".into());
 }
 // Startup only: use the existing main profile before allocating a login WebView.
 // No cookie deletion or navigation is needed when both Access sessions are valid.

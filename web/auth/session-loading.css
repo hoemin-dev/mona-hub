@@ -1,0 +1,34 @@
+/* Fits the existing 36px dock without resizing or creating another window. */
+html.session-loading { background: #171a20; }
+.session-loading body { background: #171a20; }
+.session-loading main { visibility: hidden; }
+#sessionLoading {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  box-sizing: border-box;
+  border-left: 1px solid #30353d;
+  background: linear-gradient(180deg, #1f232a, #171a20);
+  color: #a0aaa5;
+  font: 11px/1.5 "Segoe UI", "Malgun Gothic", sans-serif;
+  text-align: center;
+  user-select: none;
+}
+.session-spinner {
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  border: 2px solid #35423d;
+  border-top-color: #63d69d;
+  border-radius: 50%;
+  animation: session-spin 900ms linear infinite;
+}
+@keyframes session-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .session-spinner { animation: none; }
+}

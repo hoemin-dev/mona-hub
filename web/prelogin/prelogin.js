@@ -1,3 +1,5 @@
+import "../auth/session-loading.js";
+
 const profileButton = document.getElementById("profileButton");
 
 let activeE2eEntries = null;
