@@ -28,6 +28,9 @@ mod appbar;
 #[cfg(target_os = "windows")]
 mod login_footer;
 
+#[cfg(target_os = "windows")]
+mod login_pointer;
+
 const LOGIN_WINDOW_LABEL: &str = "login";
 const PROFILE_POPUP_LABEL: &str = "profile-popup";
 const WEB_APP_WINDOW_LABEL_PREFIX: &str = "webapp-";
@@ -2039,6 +2042,16 @@ pub fn run() {
          * 창 닫기 처리
          */
         .on_window_event(|window, event| {
+            #[cfg(target_os = "windows")]
+            if window.label() == LOGIN_WINDOW_LABEL {
+                if matches!(event, WindowEvent::Destroyed) {
+                    login_pointer::reset();
+                } else if matches!(event, WindowEvent::Resized(_)) {
+                    if let Some(login) = window.app_handle().get_webview_window(LOGIN_WINDOW_LABEL) {
+                        login_pointer::on_resize(&login);
+                    }
+                }
+            }
             if window.label() == LOGIN_WINDOW_LABEL && matches!(event, WindowEvent::Destroyed) {
                 // Defer until Tauri has removed the old label from its manager.
                 let app = window.app_handle().clone();

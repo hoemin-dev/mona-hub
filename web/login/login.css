@@ -178,7 +178,7 @@ button {
 }
 
 .brand h1 {
-  color: #f1f4f2;
+  color: #dedede;
   font-size: 22px;
   font-weight: 640;
   letter-spacing: -0.4px;
@@ -204,7 +204,7 @@ button {
   border: 1px solid #4ea379;
   border-radius: 6px;
   background: #368f64;
-  color: #fff;
+  color: #d0d0d0;
   font-family: "Segoe UI";
   font-size: 16px;
   font-weight: 650;
