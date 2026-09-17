@@ -170,6 +170,7 @@ button {
   font-size: 16px;
   font-weight: 650;
   cursor: pointer;
+  letter-spacing: 1.2px;
 }
 
 .login-button:hover {
@@ -185,7 +186,7 @@ button {
 .auth-note {
   margin: 12px 0 0;
   color: #717b79;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
   text-align: left;
 }
