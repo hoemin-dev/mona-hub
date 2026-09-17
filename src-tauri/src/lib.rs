@@ -50,6 +50,8 @@ const AUTH_LOGGING_OUT_ENTRA: u8 = 5;
 const AUTH_CHECKING_SESSION: u8 = 6;
 const AUTH_RESOLVING_IDENTITY: u8 = 7;
 static LOGIN_REQUEST_ID: AtomicU64 = AtomicU64::new(0);
+// A cancelled local login document must be reloaded before it is shown again.
+static LOGIN_DOCUMENT_NEEDS_RELOAD: AtomicBool = AtomicBool::new(false);
 static AUTH_FLOW_STATE: AtomicU8 = AtomicU8::new(AUTH_IDLE);
 static LOGIN_PAGE_LOAD: OnceLock<Mutex<Option<(u64, Instant)>>> = OnceLock::new();
 static LOGIN_START_URL: OnceLock<Mutex<Option<Url>>> = OnceLock::new();
@@ -502,6 +504,16 @@ fn notify_login_page_ready(window: WebviewWindow) -> Result<(), String> {
         log::info!("[auth] login page ready while inactive; keeping window hidden");
         return Ok(());
     }
+    if LOGIN_DOCUMENT_NEEDS_RELOAD.load(Ordering::Acquire)
+        && AUTH_FLOW_STATE.load(Ordering::Acquire) != AUTH_WAITING_FOR_LOGIN
+    {
+        log::info!("[auth] refreshed login page ready after cancellation; keeping window hidden");
+        return Ok(());
+    }
+    if LOGIN_DOCUMENT_NEEDS_RELOAD.load(Ordering::Acquire) {
+        window.unminimize().map_err(|error| error.to_string())?;
+        LOGIN_DOCUMENT_NEEDS_RELOAD.store(false, Ordering::Release);
+    }
     window.show().map_err(|error| error.to_string())?;
     log::info!(
         "[LOGIN PERF] page-ready show: {:.1}ms",
@@ -528,6 +540,11 @@ fn close_login_window(window: WebviewWindow) -> Result<(), String> {
 
 fn handle_login_window_close(window: &WebviewWindow) {
     let state = AUTH_FLOW_STATE.load(Ordering::Acquire);
+    if !matches!(state, AUTH_LOGGING_OUT_CLOUDFLARE | AUTH_LOGGING_OUT_ENTRA)
+        && window.url().is_ok_and(|url| is_login_start_url(&url))
+    {
+        LOGIN_DOCUMENT_NEEDS_RELOAD.store(true, Ordering::Release);
+    }
     if state == AUTH_LOGGING_OUT_CLOUDFLARE {
         set_auth_state(window.app_handle(), AUTHENTICATED);
         if let Ok(start) = login_start_url().lock() {
@@ -1434,6 +1451,14 @@ fn request_login(app: &AppHandle, origin: &str) -> tauri::Result<()> {
             return Ok(());
         }
         AUTH_WAITING_FOR_LOGIN | AUTH_WAITING_FOR_MAIN => {
+            if LOGIN_DOCUMENT_NEEDS_RELOAD.load(Ordering::Acquire)
+                && login_window
+                    .as_ref()
+                    .is_some_and(|window| window.url().is_ok_and(|url| is_login_start_url(&url)))
+            {
+                log::info!("[auth] waiting for refreshed login page before showing window");
+                return Ok(());
+            }
             log::info!("[auth] navigation decision=focus-only authenticating");
             if let Some(login_window) = login_window {
                 log::info!("[auth] login window already active; focus only");
@@ -1494,6 +1519,24 @@ fn show_or_create_login_window(app: &AppHandle, origin: &str) -> tauri::Result<(
     if let Some(login_window) = existing_window {
         let start_url = resolved_login_start_url(app);
         let current_url = login_window.url()?;
+        if LOGIN_DOCUMENT_NEEDS_RELOAD.load(Ordering::Acquire)
+            && is_login_start_url(&current_url)
+        {
+            login_window.hide()?;
+            if let Ok(mut pending) = login_page_load().lock() {
+                *pending = Some((request_id, Instant::now()));
+            }
+            log::info!("[auth] navigation decision=reload cancelled local login document");
+            if let Err(error) = login_window.reload() {
+                if let Ok(mut pending) = login_page_load().lock() {
+                    *pending = None;
+                }
+                return Err(error);
+            }
+            // notify_login_page_ready shows the fresh document. Repeated requests
+            // must not expose the old document while this reload is pending.
+            return Ok(());
+        }
         if is_active_login_url(&current_url) {
             log::info!("[auth] navigation decision=reuse active login document");
         } else if let Some(url) = start_url {

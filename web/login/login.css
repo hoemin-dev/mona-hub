@@ -124,7 +124,7 @@ button {
   stroke-linecap: round;
 }
 
-.window-control-close:hover:not(.no-hover) {
+.window-control-close:hover {
   background: #aa0c1a;
   color: #b1b1b1;
 }

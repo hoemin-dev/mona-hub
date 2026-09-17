@@ -91,16 +91,7 @@ async function minimizeLoginWindow() {
 }
 
 loginButton.addEventListener("click", handleLogin);
-
-closeButton.addEventListener("click", () => {
-  closeButton.classList.add("no-hover");
-  closeLoginWindow();
-});
-
-closeButton.addEventListener("mouseleave", () => {
-  closeButton.classList.remove("no-hover");
-});
-
+closeButton.addEventListener("click", closeLoginWindow);
 minimizeButton.addEventListener("click", minimizeLoginWindow);
 
 window.addEventListener("load", () => pageLog("load"));
