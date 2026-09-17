@@ -59,7 +59,7 @@ button {
 
 .window-title {
   color: #8e979f;
-  font-size: 12.6px;
+  font-size: 12px;
   font-weight: 400;
   transform: translateY(-1px);
 }
@@ -68,7 +68,7 @@ button {
   display: flex;
   align-self: stretch;
   -webkit-app-region: no-drag;
-  gap: 4px;
+  gap: 3.6px;
   padding-right: 2px;
 }
 
