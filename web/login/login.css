@@ -165,6 +165,7 @@ button {
   border-radius: 6px;
   background: #2f8059;
   color: #fff;
+  font-family: "Segoe UI";
   font-size: 16px;
   font-weight: 650;
   cursor: pointer;
@@ -200,7 +201,7 @@ button {
   position: absolute;
   bottom: 13px;
   color: #697279;
-  font-size: 9px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 400;
   letter-spacing: 2px;
 }

@@ -114,7 +114,7 @@ unsafe fn paint(hwnd: HWND, font: HFONT, button: bool) {
     let _ = GetClientRect(hwnd, &mut rect);
     let scale = GetDpiForWindow(hwnd) as f64 / 96.0;
     let px = |n: f64| (n * scale).round() as i32;
-    let background = CreateSolidBrush(rgb(248, 249, 250));
+    let background = CreateSolidBrush(rgb(255, 255, 255));
     FillRect(dc, &rect, background);
     let _ = DeleteObject(background.into());
     let old_font = SelectObject(dc, font.into());
@@ -159,7 +159,7 @@ unsafe fn paint(hwnd: HWND, font: HFONT, button: bool) {
             DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
         );
     } else {
-        let line = CreateSolidBrush(rgb(226, 230, 234));
+        let line = CreateSolidBrush(rgb(255, 255, 255));
         FillRect(
             dc,
             &RECT {
@@ -173,7 +173,7 @@ unsafe fn paint(hwnd: HWND, font: HFONT, button: bool) {
         SetTextColor(dc, rgb(111, 120, 130));
         DrawTextW(
             dc,
-            &mut "비밀번호 초기화는 내선 2511".encode_utf16().collect::<Vec<_>>(),
+            &mut "암호 재설정은 내선 2511로 요청하세요".encode_utf16().collect::<Vec<_>>(),
             &mut rect,
             DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
         );
