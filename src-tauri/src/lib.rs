@@ -50,8 +50,8 @@ const AUTH_LOGGING_OUT_ENTRA: u8 = 5;
 const AUTH_CHECKING_SESSION: u8 = 6;
 const AUTH_RESOLVING_IDENTITY: u8 = 7;
 static LOGIN_REQUEST_ID: AtomicU64 = AtomicU64::new(0);
-// A cancelled local login document must be reloaded before it is shown again.
-static LOGIN_DOCUMENT_NEEDS_RELOAD: AtomicBool = AtomicBool::new(false);
+static LOGIN_WINDOW_DESTROYING: AtomicBool = AtomicBool::new(false);
+static LOGIN_REOPEN_ORIGIN: Mutex<Option<String>> = Mutex::new(None);
 static AUTH_FLOW_STATE: AtomicU8 = AtomicU8::new(AUTH_IDLE);
 static LOGIN_PAGE_LOAD: OnceLock<Mutex<Option<(u64, Instant)>>> = OnceLock::new();
 static LOGIN_START_URL: OnceLock<Mutex<Option<Url>>> = OnceLock::new();
@@ -481,6 +481,9 @@ fn notify_login_page_ready(window: WebviewWindow) -> Result<(), String> {
         return Err("잘못된 창에서 로그인 준비 알림을 보냈습니다.".to_string());
     }
 
+    if LOGIN_WINDOW_DESTROYING.load(Ordering::Acquire) {
+        return Ok(());
+    }
     let ready_at = Instant::now();
     log::info!(
         "[LOGIN PAGE] ready invoke thread={:?}",
@@ -504,16 +507,6 @@ fn notify_login_page_ready(window: WebviewWindow) -> Result<(), String> {
         log::info!("[auth] login page ready while inactive; keeping window hidden");
         return Ok(());
     }
-    if LOGIN_DOCUMENT_NEEDS_RELOAD.load(Ordering::Acquire)
-        && AUTH_FLOW_STATE.load(Ordering::Acquire) != AUTH_WAITING_FOR_LOGIN
-    {
-        log::info!("[auth] refreshed login page ready after cancellation; keeping window hidden");
-        return Ok(());
-    }
-    if LOGIN_DOCUMENT_NEEDS_RELOAD.load(Ordering::Acquire) {
-        window.unminimize().map_err(|error| error.to_string())?;
-        LOGIN_DOCUMENT_NEEDS_RELOAD.store(false, Ordering::Release);
-    }
     window.show().map_err(|error| error.to_string())?;
     log::info!(
         "[LOGIN PERF] page-ready show: {:.1}ms",
@@ -534,17 +527,39 @@ fn close_login_window(window: WebviewWindow) -> Result<(), String> {
         return Err("잘못된 창에서 로그인 닫기를 요청했습니다.".to_string());
     }
 
-    handle_login_window_close(&window);
-    window.hide().map_err(|error| error.to_string())
+    dismiss_login_window(&window).map_err(|error| error.to_string())
+}
+
+fn dismiss_login_window(window: &WebviewWindow) -> tauri::Result<()> {
+    if LOGIN_WINDOW_DESTROYING.load(Ordering::Acquire) {
+        return Ok(());
+    }
+    let destroy = should_destroy_login_on_close(
+        &window.url()?,
+        AUTH_FLOW_STATE.load(Ordering::Acquire),
+    );
+    handle_login_window_close(window);
+    if !destroy {
+        return window.hide();
+    }
+
+    // Invalidate pending authentication before discarding the WebView controller.
+    // Its shared cookie/profile directory is deliberately left intact.
+    set_auth_state(window.app_handle(), AUTH_IDLE);
+    LOGIN_WINDOW_DESTROYING.store(true, Ordering::Release);
+    if let Ok(mut pending) = login_page_load().lock() {
+        *pending = None;
+    }
+    if let Err(error) = window.destroy() {
+        LOGIN_WINDOW_DESTROYING.store(false, Ordering::Release);
+        return Err(error);
+    }
+    log::info!("[auth] local login window destruction requested");
+    Ok(())
 }
 
 fn handle_login_window_close(window: &WebviewWindow) {
     let state = AUTH_FLOW_STATE.load(Ordering::Acquire);
-    if !matches!(state, AUTH_LOGGING_OUT_CLOUDFLARE | AUTH_LOGGING_OUT_ENTRA)
-        && window.url().is_ok_and(|url| is_login_start_url(&url))
-    {
-        LOGIN_DOCUMENT_NEEDS_RELOAD.store(true, Ordering::Release);
-    }
     if state == AUTH_LOGGING_OUT_CLOUDFLARE {
         set_auth_state(window.app_handle(), AUTHENTICATED);
         if let Ok(start) = login_start_url().lock() {
@@ -571,7 +586,7 @@ fn handle_login_window_close(window: &WebviewWindow) {
         set_auth_state(window.app_handle(), AUTH_IDLE);
         log::info!("[auth] login cancelled; state=PRELOGIN");
     }
-    log::info!("[auth] login window hidden");
+    log::info!("[auth] login window close handled");
 }
 
 #[tauri::command]
@@ -693,6 +708,12 @@ fn is_login_start_url(url: &Url) -> bool {
     classify_url(url) == UrlRole::MonaHubLogin
 }
 
+fn should_destroy_login_on_close(url: &Url, state: u8) -> bool {
+    is_login_start_url(url)
+        && matches!(state, AUTH_IDLE | AUTH_WAITING_FOR_LOGIN | AUTH_WAITING_FOR_MAIN
+            | AUTH_RESOLVING_IDENTITY | AUTH_CHECKING_SESSION)
+}
+
 fn is_external_auth_url(url: &Url) -> bool {
     matches!(
         classify_url(url),
@@ -707,6 +728,25 @@ fn is_active_login_url(url: &Url) -> bool {
 #[cfg(test)]
 mod login_url_tests {
     use super::*;
+
+    #[test]
+    fn destroy_on_close_is_limited_to_cancelled_local_login() {
+        let local = url("https://mona-hub.pages.dev/login/");
+        for state in [AUTH_IDLE, AUTH_WAITING_FOR_LOGIN, AUTH_WAITING_FOR_MAIN,
+            AUTH_RESOLVING_IDENTITY, AUTH_CHECKING_SESSION] {
+            assert!(should_destroy_login_on_close(&local, state));
+            for external in [
+                "https://login.microsoftonline.com/example/oauth2/v2.0/authorize",
+                "https://example.cloudflareaccess.com/cdn-cgi/access/login",
+                "https://mona-hub.pages.dev/app/",
+            ] {
+                assert!(!should_destroy_login_on_close(&url(external), state));
+            }
+        }
+        for state in [AUTHENTICATED, AUTH_LOGGING_OUT_CLOUDFLARE, AUTH_LOGGING_OUT_ENTRA] {
+            assert!(!should_destroy_login_on_close(&local, state));
+        }
+    }
 
     fn url(value: &str) -> Url {
         value.parse().expect("test URL must be valid")
@@ -923,6 +963,11 @@ fn log_auth_navigation(label: &str, event: &str, url: &Url, state: u8) {
 }
 
 fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadPayload<'_>) {
+    if window.label() == LOGIN_WINDOW_LABEL
+        && LOGIN_WINDOW_DESTROYING.load(Ordering::Acquire)
+    {
+        return;
+    }
     startup_trace::mark(&format!("webview.{} {:?} {}", window.label(), payload.event(), safe_url_for_log(payload.url())));
     if startup_trace::enabled() && window.label() == "main" && is_access_app_url(payload.url()) && payload.event() == PageLoadEvent::Finished {
         let _ = window.eval(r#"(() => {
@@ -1160,8 +1205,15 @@ fn log_login_diagnostic(message: String) {
 }
 
 #[tauri::command]
-fn show_login_window(app: AppHandle) -> Result<(), String> {
-    request_login(&app, "profile").map_err(|error| error.to_string())
+async fn show_login_window(app: AppHandle) -> Result<(), String> {
+    // Leave synchronous WebView IPC before building a new Windows controller.
+    let (result_tx, mut result_rx) = tauri::async_runtime::channel(1);
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        let result = request_login(&handle, "profile").map_err(|error| error.to_string());
+        let _ = result_tx.try_send(result);
+    }).map_err(|error| error.to_string())?;
+    result_rx.recv().await.ok_or_else(|| "로그인 창 생성 결과를 받지 못했습니다.".to_string())?
 }
 
 fn position_profile_popup(app: &AppHandle, popup: &WebviewWindow) -> tauri::Result<()> {
@@ -1417,6 +1469,11 @@ fn login_diagnostic_operation(origin: &str) -> LoginDiagnosticOperation {
 }
 
 fn request_login(app: &AppHandle, origin: &str) -> tauri::Result<()> {
+    if LOGIN_WINDOW_DESTROYING.load(Ordering::Acquire) {
+        *LOGIN_REOPEN_ORIGIN.lock().unwrap() = Some(origin.to_string());
+        log::info!("[auth] login request queued until window destruction completes");
+        return Ok(());
+    }
     let state = AUTH_FLOW_STATE.load(Ordering::Acquire);
     log::info!(
         "[auth] request_login state={} source={origin}",
@@ -1451,12 +1508,12 @@ fn request_login(app: &AppHandle, origin: &str) -> tauri::Result<()> {
             return Ok(());
         }
         AUTH_WAITING_FOR_LOGIN | AUTH_WAITING_FOR_MAIN => {
-            if LOGIN_DOCUMENT_NEEDS_RELOAD.load(Ordering::Acquire)
-                && login_window
-                    .as_ref()
-                    .is_some_and(|window| window.url().is_ok_and(|url| is_login_start_url(&url)))
+            if login_page_load().lock().unwrap().is_some()
+                && login_window.as_ref().map_or(true, |window| {
+                    window.url().is_ok_and(|url| is_login_start_url(&url))
+                })
             {
-                log::info!("[auth] waiting for refreshed login page before showing window");
+                log::info!("[auth] waiting for new login page before showing window");
                 return Ok(());
             }
             log::info!("[auth] navigation decision=focus-only authenticating");
@@ -1519,24 +1576,6 @@ fn show_or_create_login_window(app: &AppHandle, origin: &str) -> tauri::Result<(
     if let Some(login_window) = existing_window {
         let start_url = resolved_login_start_url(app);
         let current_url = login_window.url()?;
-        if LOGIN_DOCUMENT_NEEDS_RELOAD.load(Ordering::Acquire)
-            && is_login_start_url(&current_url)
-        {
-            login_window.hide()?;
-            if let Ok(mut pending) = login_page_load().lock() {
-                *pending = Some((request_id, Instant::now()));
-            }
-            log::info!("[auth] navigation decision=reload cancelled local login document");
-            if let Err(error) = login_window.reload() {
-                if let Ok(mut pending) = login_page_load().lock() {
-                    *pending = None;
-                }
-                return Err(error);
-            }
-            // notify_login_page_ready shows the fresh document. Repeated requests
-            // must not expose the old document while this reload is pending.
-            return Ok(());
-        }
         if is_active_login_url(&current_url) {
             log::info!("[auth] navigation decision=reuse active login document");
         } else if let Some(url) = start_url {
@@ -1669,13 +1708,32 @@ fn show_or_create_login_window(app: &AppHandle, origin: &str) -> tauri::Result<(
         .always_on_top(false)
         .skip_taskbar(false)
         .visible(false)
-        .build()?;
-    #[cfg(target_os = "windows")]
-    login_footer::install(&login_window)?;
-    if let Ok(url) = login_window.url() {
-        if let Some(mode) = login_presentation_mode(&url) {
-            set_login_window_mode(&login_window, mode)?;
+        .build();
+    let login_window = match login_window {
+        Ok(window) => window,
+        Err(error) => {
+            *login_page_load().lock().unwrap() = None;
+            return Err(error);
         }
+    };
+    let setup_result = (|| -> tauri::Result<()> {
+        #[cfg(target_os = "windows")]
+        login_footer::install(&login_window)?;
+        if let Ok(url) = login_window.url() {
+            if let Some(mode) = login_presentation_mode(&url) {
+                set_login_window_mode(&login_window, mode)?;
+            }
+        }
+        center_login_window(app, &login_window)
+    })();
+    if let Err(error) = setup_result {
+        *login_page_load().lock().unwrap() = None;
+        LOGIN_WINDOW_DESTROYING.store(true, Ordering::Release);
+        if let Err(destroy_error) = login_window.destroy() {
+            LOGIN_WINDOW_DESTROYING.store(false, Ordering::Release);
+            log::error!("[auth] failed to destroy partially initialized login: {destroy_error}");
+        }
+        return Err(error);
     }
     startup_trace::mark("login.build.end");
     if let Ok(url) = login_window.url() {
@@ -1689,13 +1747,6 @@ fn show_or_create_login_window(app: &AppHandle, origin: &str) -> tauri::Result<(
         build_started.elapsed().as_secs_f64() * 1000.0
     );
 
-    // AppBar와 같은 모니터의 전체 영역을 기준으로 로그인 창을 중앙 배치한다.
-    let position_started = Instant::now();
-    center_login_window(app, &login_window)?;
-    log::info!(
-        "[LOGIN PERF #{request_id}] center/set_position: {:.1}ms",
-        position_started.elapsed().as_secs_f64() * 1000.0
-    );
     log::info!(
         "[LOGIN PERF #{request_id}] total show_login_window (build returned): {:.1}ms",
         total_started.elapsed().as_secs_f64() * 1000.0
@@ -1988,6 +2039,27 @@ pub fn run() {
          * 창 닫기 처리
          */
         .on_window_event(|window, event| {
+            if window.label() == LOGIN_WINDOW_LABEL && matches!(event, WindowEvent::Destroyed) {
+                // Defer until Tauri has removed the old label from its manager.
+                let app = window.app_handle().clone();
+                // run_on_main_thread may execute inline on the UI thread, so
+                // dispatch from a worker to leave the destruction callback first.
+                tauri::async_runtime::spawn(async move {
+                    let handle = app.clone();
+                    if let Err(error) = app.run_on_main_thread(move || {
+                        LOGIN_WINDOW_DESTROYING.store(false, Ordering::Release);
+                        let origin = LOGIN_REOPEN_ORIGIN.lock().unwrap().take();
+                        if let Some(origin) = origin {
+                            if let Err(error) = request_login(&handle, &origin) {
+                                log::error!("[auth] queued login request failed: {error}");
+                            }
+                        }
+                    }) {
+                        log::error!("[auth] login destruction completion dispatch failed: {error}");
+                    }
+                });
+                return;
+            }
             if window.label() == PROFILE_POPUP_LABEL {
                 if let WindowEvent::Focused(focused) = event {
                     set_profile_popup_open(window.app_handle(), *focused);
@@ -2012,9 +2084,10 @@ pub fn run() {
                     api.prevent_close();
                     if let Some(login) = window.app_handle().get_webview_window(LOGIN_WINDOW_LABEL)
                     {
-                        handle_login_window_close(&login);
+                        if let Err(error) = dismiss_login_window(&login) {
+                            log::error!("[auth] login close failed: {error}");
+                        }
                     }
-                    let _ = window.hide();
                     return;
                 }
 
