@@ -54,12 +54,12 @@ button {
 .titleset {
   display: flex;
   align-items: center;
-  gap: 6.5px;
+  gap: 6px;
 }
 
 .window-title {
   color: #8e979f;
-  font-size: 12.8px;
+  font-size: 13px;
   font-weight: 400;
   transform: translateY(-1px);
 }
@@ -68,6 +68,7 @@ button {
   display: flex;
   align-self: stretch;
   -webkit-app-region: no-drag;
+  gap: 12px;
 }
 
 .window-control {
@@ -81,7 +82,6 @@ button {
   color: #929ba3;
   cursor: pointer;
   -webkit-app-region: no-drag;
-  gap: 10px;
 }
 
 .window-control:hover {
