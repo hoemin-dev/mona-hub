@@ -38,7 +38,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-left: 8.5px;
+  padding-left: 8px;
   /*border-bottom: 1px solid #30353d;*/
   background: #1b1e24;
   -webkit-app-region: drag;
@@ -68,7 +68,7 @@ button {
   display: flex;
   align-self: stretch;
   -webkit-app-region: no-drag;
-  gap: 10px;
+  gap: 8px;
 }
 
 .window-control {
