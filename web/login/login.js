@@ -93,19 +93,18 @@ async function minimizeLoginWindow() {
 loginButton.addEventListener("click", handleLogin);
 
 closeButton.addEventListener("click", () => {
-  closeButton.style.pointerEvents = "none";
+  closeButton.classList.add("no-hover");
   closeLoginWindow();
+});
+
+closeButton.addEventListener("mouseleave", () => {
+  closeButton.classList.remove("no-hover");
 });
 
 minimizeButton.addEventListener("click", minimizeLoginWindow);
 
 window.addEventListener("load", () => pageLog("load"));
-
-window.addEventListener("focus", () => {
-  closeButton.style.pointerEvents = "";
-  pageLog("focus");
-});
-
+window.addEventListener("focus", () => pageLog("focus"));
 window.addEventListener("blur", () => pageLog("blur"));
 window.addEventListener("resize", () => pageLog("resize"));
 document.addEventListener("visibilitychange", () => pageLog("visibilitychange"));
