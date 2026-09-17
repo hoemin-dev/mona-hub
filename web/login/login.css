@@ -179,12 +179,12 @@ button {
   letter-spacing: -0.4px;
 }
 
-.login-prompt {
+/*.login-prompt {
   margin: 12px 0 0;
   color: #717b79;
   font-size: 12px;
   text-align: center;
-}
+}*/
 
 .login-action {
   display: grid;
@@ -196,16 +196,16 @@ button {
 .login-button {
   width: 100%;
   height: 38px;
-  border: 1px solid #4ca779;
+  border: 1px solid #397a59;
   border-radius: 6px;
-  background: #2f8059;
+  background: #266647;
   color: #fff;
   font-family: "Segoe UI";
   font-size: 16px;
   font-weight: 650;
   cursor: pointer;
-  letter-spacing: 26px;
-  text-indent: 26px;
+  letter-spacing: 6px;
+  text-indent: 6px;
 }
 
 .login-button:hover {
