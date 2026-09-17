@@ -71,7 +71,7 @@ button {
   gap: 3.6px;
 }
 
-.window-control-min, {
+.window-control-min {
   display: grid;
   width: 42.6px;
   height: 32px;
