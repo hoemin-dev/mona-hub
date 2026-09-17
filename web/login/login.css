@@ -98,7 +98,7 @@ button {
   stroke-linecap: round;
 }
 
-.window-control svg:hover {
+.window-control-close:hover {
   background: #aa0c1a;
   color: #b1b1b1;
 }
@@ -109,7 +109,7 @@ button {
   background: currentColor;
 }
 
-.minimize-icon:hover {
+.window-control-min:hover {
   background: #343941;
   color: #b1b1b1;
 }
