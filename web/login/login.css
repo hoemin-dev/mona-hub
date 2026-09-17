@@ -146,9 +146,10 @@ button {
 }
 
 .login-prompt {
-  margin: 9px 0 0;
+  margin: 12px 0 0;
   color: #717b79;
-  font-size: 12px;
+  font-size: 13px;
+  text-align: left;
 }
 
 .login-action {
@@ -184,7 +185,7 @@ button {
 .auth-note {
   margin: 12px 0 0;
   color: #717b79;
-  font-size: 13px;
+  font-size: 11px;
   line-height: 1.5;
   text-align: left;
 }
@@ -203,5 +204,5 @@ button {
   color: #697279;
   font-size: 12px;
   font-weight: 400;
-  letter-spacing: 1.05px;
+  letter-spacing: 0.95px;
 }
