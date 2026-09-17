@@ -69,12 +69,11 @@ button {
   align-self: stretch;
   -webkit-app-region: no-drag;
   gap: 3.6px;
-  padding-right: 2px;
 }
 
 .window-control {
   display: grid;
-  width: 42px;
+  width: 42.6px;
   height: 32px;
   place-items: center;
   padding: 0;
@@ -85,13 +84,8 @@ button {
   -webkit-app-region: no-drag;
 }
 
-.window-control:hover {
-  background: #343941;
-  color: #f0f3f2;
-}
-
 .window-control:focus-visible {
-  outline: 2px solid #63d69d;
+  outline: 0.5px solid #39835e;
   outline-offset: -3px;
 }
 
@@ -104,10 +98,20 @@ button {
   stroke-linecap: round;
 }
 
+.window-control svg:hover {
+  background: #aa0c1a;
+  color: #b1b1b1;
+}
+
 .minimize-icon {
   width: 10.5px;
   height: 1px;
   background: currentColor;
+}
+
+.minimize-icon:hover {
+  background: #343941;
+  color: #b1b1b1;
 }
 
 .maximize-icon {
@@ -148,8 +152,8 @@ button {
 .login-prompt {
   margin: 12px 0 0;
   color: #717b79;
-  font-size: 13px;
-  text-align: left;
+  font-size: 12px;
+  text-align: center;
 }
 
 .login-action {
@@ -170,7 +174,7 @@ button {
   font-size: 16px;
   font-weight: 650;
   cursor: pointer;
-  letter-spacing: 1.2px;
+  letter-spacing: 1.5px;
 }
 
 .login-button:hover {
