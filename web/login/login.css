@@ -68,7 +68,8 @@ button {
   display: flex;
   align-self: stretch;
   -webkit-app-region: no-drag;
-  gap: 8px;
+  gap: 4px;
+  padding-right: 2px;
 }
 
 .window-control {
