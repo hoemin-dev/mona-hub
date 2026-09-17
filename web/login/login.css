@@ -71,7 +71,33 @@ button {
   gap: 3.6px;
 }
 
-.window-control {
+.window-control-min, {
+  display: grid;
+  width: 42.6px;
+  height: 32px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #929ba3;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.window-control-max {
+  display: grid;
+  width: 42.6px;
+  height: 32px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #929ba3;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.window-control-close {
   display: grid;
   width: 42.6px;
   height: 32px;
@@ -89,7 +115,7 @@ button {
   outline-offset: -3px;
 }
 
-.window-control svg {
+.window-control-close svg {
   width: 18px;
   height: 18px;
   fill: none;
