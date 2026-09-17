@@ -173,7 +173,7 @@ unsafe fn paint(hwnd: HWND, font: HFONT, button: bool) {
         SetTextColor(dc, rgb(111, 120, 130));
         DrawTextW(
             dc,
-            &mut "암호 재설정은 내선 2511로 요청하세요".encode_utf16().collect::<Vec<_>>(),
+            &mut "암호 재설정 필요 시 내선 2511로 요청하세요".encode_utf16().collect::<Vec<_>>(),
             &mut rect,
             DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
         );

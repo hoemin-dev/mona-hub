@@ -147,8 +147,8 @@ button {
 
 .login-prompt {
   margin: 9px 0 0;
-  color: #aab2b0;
-  font-size: 14px;
+  color: #717b79;
+  font-size: 12px;
 }
 
 .login-action {
@@ -191,9 +191,9 @@ button {
 
 .login-status {
   min-height: 14px;
-  margin: 5px 0 0;
-  color: #8fa59a;
-  font-size: 9px;
+  margin: 12px 0 0;
+  color: #717b79;
+  font-size: 12px;
   text-align: center;
 }
 
@@ -203,5 +203,5 @@ button {
   color: #697279;
   font-size: 12px;
   font-weight: 400;
-  letter-spacing: 1.2px;
+  letter-spacing: 1.05px;
 }
