@@ -110,7 +110,12 @@ button {
   -webkit-app-region: no-drag;
 }
 
-.window-control:focus-visible {
+.window-control-min:focus-visible {
+  outline: 0.5px solid #39835e;
+  outline-offset: -3px;
+}
+
+.window-control-close:focus-visible {
   outline: 0.5px solid #39835e;
   outline-offset: -3px;
 }
@@ -168,7 +173,6 @@ button {
 }
 
 .brand h1 {
-  margin: 0 0 16px 0;
   color: #f1f4f2;
   font-size: 22px;
   font-weight: 640;
@@ -200,7 +204,8 @@ button {
   font-size: 16px;
   font-weight: 650;
   cursor: pointer;
-  letter-spacing: 40px;
+  letter-spacing: 26px;
+  text-indent: 26px;
 }
 
 .login-button:hover {
@@ -218,7 +223,7 @@ button {
   color: #717b79;
   font-size: 12px;
   line-height: 1.5;
-  text-align: center;
+  text-align: left;
 }
 
 .login-status {
