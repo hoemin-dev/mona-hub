@@ -1,10 +1,10 @@
 /* Fits the existing 36px dock without resizing or creating another window. */
 html.session-loading { background: #171a20; }
 .session-loading body { background: #171a20; }
-.session-loading main { visibility: hidden; }
 #sessionLoading {
   position: fixed;
-  inset: 0;
+  /* Keep the AppBar brand and profile rows visible while only its center loads. */
+  inset: 38px 0 40px;
   z-index: 1000;
   display: flex;
   flex-direction: column;
