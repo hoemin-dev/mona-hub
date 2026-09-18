@@ -257,8 +257,8 @@ button {
 
 .login-progress-bar {
   position: absolute;
-  inset: 0 auto 0 -18%;
-  width: 18%;
+  inset: 0 auto 0 -8%;
+  width: 8%;
   border-radius: inherit;
   background: #43966c;
   animation: login-progress-slide 0.85s ease-in-out infinite;
