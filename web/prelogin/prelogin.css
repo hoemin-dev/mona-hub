@@ -65,8 +65,8 @@ body {
 
 .profile-avatar {
   --profile-stroke: #61666b;
-  --profile-start: #53565a;
-  --profile-end: #3f4144;
+  --profile-start: #41464d;
+  --profile-end: #292d33;
   position: relative;
   display: grid;
   width: 28px;
@@ -81,9 +81,9 @@ body {
 }
 
 .profile-avatar:hover {
-  --profile-stroke: #848a91;
-  --profile-start: #71757a;
-  --profile-end: #54565a;
+  --profile-stroke: #787d83;
+  --profile-start: #51575f;
+  --profile-end: #393e46;
 }
 
 /* One antialiased contour for both the fill and the 1px outline. */
