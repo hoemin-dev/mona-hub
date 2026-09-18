@@ -17,7 +17,7 @@ body {
 }
 
 body {
-  min-width: 36px;
+  min-width: 40px;
   overflow: hidden;
   background: #171a20;
   user-select: none;
@@ -25,7 +25,7 @@ body {
 
 .prelogin-appbar {
   display: grid;
-  grid-template-rows: 38px minmax(0, 1fr) auto 40px;
+  grid-template-rows: 42px minmax(0, 1fr) auto 44px;
   width: 100%;
   height: 100%;
   border-left: 1px solid #30353d;
@@ -49,8 +49,8 @@ body {
 
 .hub-icon {
   display: block;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   object-fit: contain;
   image-rendering: auto;
 }
@@ -65,8 +65,8 @@ body {
 
 .utility-button {
   display: flex;
-  width: 34px;
-  min-height: 43px;
+  width: 38px;
+  min-height: 50px;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -81,19 +81,19 @@ body {
 
 .utility-icon {
   display: block;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   object-fit: contain;
   filter: grayscale(.18) saturate(.88) brightness(.94);
   opacity: .92;
 }
 
 .utility-label {
-  width: 34px;
-  font-size: 9px;
+  width: 38px;
+  font-size: 10px;
   font-weight: 400;
   letter-spacing: -0.5px;
-  line-height: 9px;
+  line-height: 10px;
   text-align: center;
   white-space: nowrap;
 }
@@ -128,8 +128,8 @@ body {
   --profile-end: #292d33;
   position: relative;
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   place-items: center;
   padding: 0;
   border: 0;
@@ -150,8 +150,8 @@ body {
   position: absolute;
   inset: 0;
   display: block;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   pointer-events: none;
 }
 
