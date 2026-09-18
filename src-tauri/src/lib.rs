@@ -770,6 +770,15 @@ fn is_logout_complete_url(url: &Url) -> bool {
     classify_url(url) == UrlRole::LogoutComplete
 }
 
+fn is_entra_logout_session_url(url: &Url) -> bool {
+    url.scheme() == "https"
+        && url.host_str() == Some("login.microsoftonline.com")
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.path().trim_end_matches('/')
+            == format!("/{ENTRA_TENANT_ID}/oauth2/v2.0/logoutsession")
+}
+
 fn is_login_start_url(url: &Url) -> bool {
     classify_url(url) == UrlRole::MonaHubLogin
 }
@@ -891,6 +900,27 @@ mod login_url_tests {
         assert!(!is_active_login_url(&url(
             "https://mona-hub.pages.dev/logout-complete/"
         )));
+    }
+
+    #[test]
+    fn only_the_configured_entra_logout_session_is_terminal() {
+        assert!(is_entra_logout_session_url(&url(&format!(
+            "https://login.microsoftonline.com/{ENTRA_TENANT_ID}/oauth2/v2.0/logoutsession"
+        ))));
+        assert!(is_entra_logout_session_url(&url(&format!(
+            "https://login.microsoftonline.com/{ENTRA_TENANT_ID}/oauth2/v2.0/logoutsession?state=opaque"
+        ))));
+        for value in [
+            format!(
+                "https://login.microsoftonline.com/{ENTRA_TENANT_ID}/oauth2/v2.0/logout"
+            ),
+            "https://login.microsoftonline.com/common/oauth2/v2.0/logoutsession".to_string(),
+            format!(
+                "https://login.microsoftonline.com.evil.example/{ENTRA_TENANT_ID}/oauth2/v2.0/logoutsession"
+            ),
+        ] {
+            assert!(!is_entra_logout_session_url(&url(&value)));
+        }
     }
 
     #[test]
@@ -1257,6 +1287,21 @@ fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadP
         && is_logout_complete_url(url)
     {
         log::info!("[logout] logout-complete reached");
+        complete_logout(window.app_handle());
+        return;
+    }
+
+
+    // With an account picker, Entra can finish at its tenant-scoped
+    // logoutsession document instead of honoring post_logout_redirect_uri.
+    // Finished is required here: Started only proves the request was issued,
+    // while a completed response proves Entra processed the selected account.
+    if label == LOGIN_WINDOW_LABEL
+        && state == AUTH_LOGGING_OUT_ENTRA
+        && payload.event() == PageLoadEvent::Finished
+        && is_entra_logout_session_url(url)
+    {
+        log::info!("[logout] Entra logoutsession completed");
         complete_logout(window.app_handle());
         return;
     }
