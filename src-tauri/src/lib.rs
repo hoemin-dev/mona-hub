@@ -26,6 +26,9 @@ mod autostart;
 mod appbar;
 
 #[cfg(target_os = "windows")]
+mod appbar_webview;
+
+#[cfg(target_os = "windows")]
 mod login_footer;
 
 #[cfg(target_os = "windows")]
@@ -2095,6 +2098,8 @@ pub fn run() {
                 );
                 #[cfg(target_os = "windows")]
                 appbar::log_window_state(&main, "MAIN_HWND_READY_STATE");
+                #[cfg(target_os = "windows")]
+                appbar_webview::configure(&main)?;
             }
 
             // WebView IPC command 안에서 새 WebView를 동기 생성하면 Windows에서

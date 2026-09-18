@@ -20,15 +20,23 @@ html.session-loading { background: #171a20; }
   user-select: none;
 }
 .session-spinner {
+  display: block;
+  flex: 0 0 auto;
   box-sizing: border-box;
   width: 18px;
   height: 18px;
   border: 2px solid #35423d;
   border-top-color: #63d69d;
   border-radius: 50%;
+  transform: rotate(0deg);
+  will-change: transform;
   animation: session-spin 900ms linear infinite;
 }
-@keyframes session-spin { to { transform: rotate(360deg); } }
+@keyframes session-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 @media (prefers-reduced-motion: reduce) {
-  .session-spinner { animation: none; }
+  /* Keep progress visibly active while reducing the rotation speed. */
+  .session-spinner { animation-duration: 1800ms; }
 }

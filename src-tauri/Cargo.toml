@@ -39,3 +39,4 @@ raw-window-handle = "0.6"
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.38.2"
+windows-core-61 = { package = "windows-core", version = "0.61.2" }

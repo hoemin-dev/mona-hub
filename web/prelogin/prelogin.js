@@ -1,4 +1,5 @@
 import "../auth/session-loading.js";
+import "../appbar-shell.js";
 
 const profileButton = document.getElementById("profileButton");
 

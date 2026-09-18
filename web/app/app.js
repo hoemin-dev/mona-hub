@@ -145,6 +145,7 @@ async function openWebApp(app) {
 import { AccessAuthProvider } from "../auth/access-auth-provider.js";
 import { AuthController } from "../auth/auth-controller.js";
 import { authConfig } from "./config/environment.js";
+import "../appbar-shell.js";
 
 import { MonaSession } from "../auth/mona-session.js";
 import "../auth/session-loading.js";

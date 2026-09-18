@@ -4,6 +4,7 @@ import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 import { MonaSession } from '../web/auth/mona-session.js';
 const loadingSource = (await readFile(new URL('../web/auth/session-loading.js', import.meta.url), 'utf8')).replace('export function', 'function');
+const loadingStyles = await readFile(new URL('../web/auth/session-loading.css', import.meta.url), 'utf8');
 const appSource = (await readFile(new URL('../web/app/app.js', import.meta.url), 'utf8')).replace(/^import .*;\r?$/gm, '');
 function fixture({ label = 'main', snapshot, authState } = {}) {
   const elements = new Map();
@@ -30,6 +31,11 @@ function fixture({ label = 'main', snapshot, authState } = {}) {
   return { context, classes, elements, main, calls, finish, update };
 }
 const settle = () => new Promise(resolve => setImmediate(resolve));
+test('loading spinner remains animated when reduced motion is requested', () => {
+  const reducedMotionRule = loadingStyles.match(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{([\s\S]*?)\n\}/)?.[1] ?? '';
+  assert.match(loadingStyles, /animation:\s*session-spin\s+900ms\s+linear\s+infinite/);
+  assert.doesNotMatch(reducedMotionRule, /animation:\s*none/);
+});
 for (const path of ['manual', 'fast path']) test(`${path}: loading lasts until cached PER session resolves`, async () => {
   const f = fixture({ snapshot: path === 'manual' ? false : true });
   f.update(true);
