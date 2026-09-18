@@ -142,7 +142,6 @@ button { font: inherit; }
   width: 30px;
   height: 30px;
   object-fit: contain;
-  filter: grayscale(.18) saturate(.88) brightness(.94);
   opacity: .92;
 }
 
