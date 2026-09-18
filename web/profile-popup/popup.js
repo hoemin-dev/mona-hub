@@ -31,15 +31,35 @@ function showConfirmation() {
   cancelButton.focus();
 }
 
+async function hidePopup() {
+  // Change the retained WebView surface before asking native code to hide it.
+  // Calling this only after invoke resolves is too late: WebView2 can preserve
+  // the confirmation frame while the native window is already hidden.
+  showMenu();
+  try {
+    if (invoke) {
+      await invoke("hide_profile_popup");
+    }
+  } catch (error) {
+    console.error("프로필 메뉴 닫기 실패:", error);
+  } finally {
+    // Keep the state correct even if native hiding fails or another event ran.
+    showMenu();
+  }
+}
+
 document.querySelectorAll("[data-placeholder]").forEach(item => {
-  item.addEventListener("click", () => void invoke?.("hide_profile_popup"));
+  item.addEventListener("click", () => void hidePopup());
 });
 logoutItem.addEventListener("click", showConfirmation);
-cancelButton.addEventListener("click", () => void invoke?.("hide_profile_popup"));
+cancelButton.addEventListener("click", () => void hidePopup());
 confirmButton.addEventListener("click", async () => {
   confirmButton.disabled = true;
   try {
     if (invoke) {
+      // Reset synchronously before native code hides the reused window. This
+      // prevents its last confirmation frame from flashing on the next show.
+      showMenu();
       await invoke("confirm_access_logout");
       return;
     }
@@ -50,4 +70,7 @@ confirmButton.addEventListener("click", async () => {
     console.error("로그아웃 확인 전달 실패:", error);
   }
 });
+// Clicking outside the popup makes the native window hide on blur. Reset the
+// DOM in the same event turn, before WebView2 retains the surface for reuse.
+window.addEventListener("blur", showMenu);
 window.addEventListener("focus", showMenu);

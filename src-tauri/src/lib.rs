@@ -62,6 +62,8 @@ static AUTH_FLOW_STATE: AtomicU8 = AtomicU8::new(AUTH_IDLE);
 static LOGIN_PAGE_LOAD: OnceLock<Mutex<Option<(u64, Instant)>>> = OnceLock::new();
 static LOGIN_START_URL: OnceLock<Mutex<Option<Url>>> = OnceLock::new();
 static PROFILE_POPUP_BLURRED_AT: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
+static LOGOUT_PRESENTATION_ID: AtomicU64 = AtomicU64::new(0);
+static LOGOUT_PRESENTATION_PENDING: AtomicU64 = AtomicU64::new(0);
 static APPBAR_INITIALIZED: AtomicBool = AtomicBool::new(false);
 static MAIN_FIRST_NAV_STARTED_LOGGED: AtomicBool = AtomicBool::new(false);
 static MAIN_FIRST_NAV_FINISHED_LOGGED: AtomicBool = AtomicBool::new(false);
@@ -169,6 +171,9 @@ fn sync_tray_auth_menu(app: &AppHandle, state: u8) {
 }
 
 fn set_auth_state(app: &AppHandle, state: u8) {
+    if state != AUTH_LOGGING_OUT_ENTRA {
+        LOGOUT_PRESENTATION_PENDING.store(0, Ordering::Release);
+    }
     if state == AUTH_IDLE { identity_session::clear(); }
     if state == AUTHENTICATED && identity_session::identity().is_err() {
         set_auth_state(app, AUTH_IDLE);
@@ -301,11 +306,49 @@ fn set_login_window_external_mode(window: &WebviewWindow) -> tauri::Result<()> {
 }
 
 fn present_logout_window(window: &WebviewWindow) -> tauri::Result<()> {
+    // Also guard tray reactivation while the old AC/DC CSS document is retained.
+    if LOGOUT_PRESENTATION_PENDING.load(Ordering::Acquire) != 0 {
+        return Ok(());
+    }
     set_login_window_external_mode(window)?;
     window.set_always_on_top(true)?;
     window.unminimize()?;
     window.show()?;
     window.set_focus()
+}
+
+fn wait_for_logout_page(app: &AppHandle) {
+    let request_id = LOGOUT_PRESENTATION_ID.fetch_add(1, Ordering::AcqRel) + 1;
+    LOGOUT_PRESENTATION_PENDING.store(request_id, Ordering::Release);
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(30));
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            // A completed page, cancellation, or newer attempt invalidates this deadline.
+            if LOGOUT_PRESENTATION_PENDING.compare_exchange(
+                request_id, 0, Ordering::AcqRel, Ordering::Acquire,
+            ).is_err() || AUTH_FLOW_STATE.load(Ordering::Acquire) != AUTH_LOGGING_OUT_ENTRA {
+                return;
+            }
+            log::error!("[logout] Microsoft page readiness timed out; cancelling so logout can be retried");
+            if let Some(login) = handle.get_webview_window(LOGIN_WINDOW_LABEL) {
+                if let Err(error) = dismiss_login_window(&login) {
+                    log::error!("[logout] timed-out provider window cleanup failed: {error}");
+                }
+            } else {
+                set_auth_state(&handle, AUTHENTICATED);
+            }
+        });
+    });
+}
+
+fn is_logout_picker_url(url: &Url) -> bool {
+    let expected = entra_logout_url();
+    url.origin() == expected.origin()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.path().trim_end_matches('/') == expected.path()
 }
 
 fn commit_logout(window: &WebviewWindow) {
@@ -874,6 +917,23 @@ mod login_url_tests {
     use super::*;
 
     #[test]
+    fn logout_presentation_requires_the_configured_microsoft_picker() {
+        assert!(is_logout_picker_url(&entra_logout_url()));
+        assert!(is_logout_picker_url(&url(&format!(
+            "https://login.microsoftonline.com/{ENTRA_TENANT_ID}/oauth2/v2.0/logout?extra=value"
+        ))));
+        for candidate in [
+            "https://mona-acdc.pages.dev/app/css/style.css".to_string(),
+            "https://mona-hub.pages.dev/logout-complete/".to_string(),
+            "https://login.microsoftonline.com/common/oauth2/v2.0/logout".to_string(),
+            format!("https://login.microsoftonline.com/{ENTRA_TENANT_ID}/oauth2/v2.0/logoutsession"),
+            format!("https://login.microsoftonline.com.evil.example/{ENTRA_TENANT_ID}/oauth2/v2.0/logout"),
+        ] {
+            assert!(!is_logout_picker_url(&url(&candidate)), "{candidate}");
+        }
+    }
+
+    #[test]
     fn destroy_on_close_is_limited_to_cancelled_local_login() {
         let local = url("https://mona-hub.pages.dev/login/");
         for state in [AUTH_IDLE, AUTH_WAITING_FOR_LOGIN, AUTH_WAITING_FOR_MAIN,
@@ -1375,6 +1435,22 @@ fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadP
         return;
     }
 
+    if label == LOGIN_WINDOW_LABEL
+        && state == AUTH_LOGGING_OUT_ENTRA
+        && payload.event() == PageLoadEvent::Finished
+        && is_logout_picker_url(url)
+        && LOGOUT_PRESENTATION_PENDING.swap(0, Ordering::AcqRel) != 0
+    {
+        if let Some(login) = window.app_handle().get_webview_window(LOGIN_WINDOW_LABEL) {
+            log::info!("[logout] Microsoft logout page ready; presenting provider window");
+            if let Err(error) = present_logout_window(&login) {
+                log::error!("[logout] provider presentation failed; cancelling: {error}");
+                let _ = dismiss_login_window(&login);
+            }
+        }
+        return;
+    }
+
     // Keep a diagnostic measurement at external-auth navigation boundaries. The
     // login window itself stays at its fixed logical size across these pages.
     if payload.event() == PageLoadEvent::Started {
@@ -1614,6 +1690,7 @@ async fn begin_access_logout(window: WebviewWindow) -> Result<(), String> {
     // application intact until Entra reports a completed logout.
     sync_tray_auth_menu(window.app_handle(), AUTH_LOGGING_OUT_ENTRA);
     sync_session_loading(window.app_handle());
+    wait_for_logout_page(window.app_handle());
     let Some(login) = window.app_handle().get_webview_window(LOGIN_WINDOW_LABEL) else {
         // A successful startup fast path has never created this window. Building
         // a WebView inside synchronous IPC can deadlock on Windows. This command
@@ -1628,14 +1705,7 @@ async fn begin_access_logout(window: WebviewWindow) -> Result<(), String> {
                 log::error!("[logout] provider window creation failed; cancelled: {error}");
                 return;
             }
-            if let Some(login) = handle.get_webview_window(LOGIN_WINDOW_LABEL) {
-                if let Err(error) = present_logout_window(&login) {
-                    let _ = login.set_always_on_top(false);
-                    let _ = login.hide();
-                    set_auth_state(&handle, AUTHENTICATED);
-                    log::error!("[logout] provider window presentation failed; cancelled: {error}");
-                }
-            }
+            // The new window remains hidden until the Microsoft page finishes.
         }).map_err(|error| {
             set_auth_state(window.app_handle(), AUTHENTICATED);
             error.to_string()
@@ -1652,16 +1722,16 @@ async fn begin_access_logout(window: WebviewWindow) -> Result<(), String> {
         }
     }
     log::info!("[logout] Microsoft Entra logout");
+    if let Err(error) = login.hide() {
+        set_auth_state(window.app_handle(), AUTHENTICATED);
+        return Err(format!("로그아웃 창 준비 중 숨기기에 실패했습니다: {error}"));
+    }
     if let Err(error) = login.navigate(entra_logout_url()) {
         set_auth_state(window.app_handle(), AUTHENTICATED);
         return Err(format!("Microsoft 로그아웃 탐색에 실패했습니다: {error}"));
     }
-    if let Err(error) = present_logout_window(&login) {
-        let _ = login.set_always_on_top(false);
-        let _ = login.hide();
-        set_auth_state(window.app_handle(), AUTHENTICATED);
-        return Err(format!("Microsoft 로그아웃 창 표시에 실패했습니다: {error}"));
-    }
+    // navigate() only schedules the request; showing here exposes the previous
+    // AC/DC style.css document until Microsoft replaces it.
     Ok(())
 }
 
