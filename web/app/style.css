@@ -1,7 +1,7 @@
 :root {
   font-family: "Segoe UI", Arial, sans-serif;
   color: #f4f5f5;
-  background: #454a50;
+  background: #171a20;
   color-scheme: dark;
 }
 
@@ -122,9 +122,9 @@ button { font: inherit; }
 }
 
 .profile-avatar {
-  --profile-stroke: #86c9a5;
-  --profile-start: #75b994;
-  --profile-end: #68ad87;
+  --profile-stroke: #8fd3ad;
+  --profile-start: #e8f8ef;
+  --profile-end: #d2f0df;
   position: relative;
   display: grid;
   width: 28px;
@@ -140,9 +140,9 @@ button { font: inherit; }
 
 .profile-avatar:hover,
 .profile-avatar[aria-expanded="true"] {
-  --profile-stroke: #97d6b4;
-  --profile-start: #83c7a2;
-  --profile-end: #75b994;
+  --profile-stroke: #70c899;
+  --profile-start: #def5e8;
+  --profile-end: #c4ead4;
 }
 
 /* Clip the shoulders to the circle and paint the 1px outline above them. */

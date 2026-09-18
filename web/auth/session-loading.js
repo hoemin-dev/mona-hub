@@ -14,7 +14,7 @@ export function setSessionLoading(loading) {
   status.id = "sessionLoading";
   status.setAttribute("role", "status");
   status.setAttribute("aria-label", "MONA Hub 준비 중");
-  status.innerHTML = '<span class="session-spinner" aria-hidden="true"></span><span aria-hidden="true">준비<br>중</span>';
+  status.innerHTML = '<span class="session-spinner" aria-hidden="true"></span><span aria-hidden="true">준비중</span>';
   document.body.append(status);
 }
 

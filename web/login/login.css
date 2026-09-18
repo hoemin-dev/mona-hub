@@ -203,13 +203,12 @@ button {
   border: 1px solid #4a9971;
   border-radius: 6px;
   background: #31815b;
-  color: #dedede;
-  font-family: "Segoe UI";
+  color: #f1f1f1;
   font-size: 16px;
   font-weight: 650;
   cursor: pointer;
-  letter-spacing: 6px;
-  text-indent: 6px;
+  letter-spacing: 4px;
+  text-indent: 4px;
 }
 
 .login-button:hover {

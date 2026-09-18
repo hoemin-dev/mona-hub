@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 22">
+  <!-- Logged-in profile artwork: fresh green figure on the app bar's pale mint disc. -->
+  <defs>
+    <linearGradient id="profileFigure" x1="3" y1="1" x2="17" y2="22" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#35bd74"/>
+      <stop offset="1" stop-color="#168b50"/>
+    </linearGradient>
+  </defs>
+  <circle cx="10" cy="5" r="4" fill="url(#profileFigure)"/>
+  <path d="M0 22v-3c0-4.5 4.5-7 10-7s10 2.5 10 7v3Z" fill="url(#profileFigure)"/>
+</svg>
