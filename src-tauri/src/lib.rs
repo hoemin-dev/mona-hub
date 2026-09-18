@@ -365,22 +365,31 @@ fn complete_logout(app: &AppHandle) {
 
     if let Some(login) = app.get_webview_window(LOGIN_WINDOW_LABEL) {
         let _ = login.set_always_on_top(false);
+        let _ = login.unminimize();
         if let Err(error) = set_login_window_local_mode(&login) {
             log::error!("[logout] failed to restore local login chrome: {error}");
         }
         if let Some(url) = resolved_login_start_url(app) {
+            // Keep the provider WebView hidden until login.js reports that the
+            // local page has rendered. Showing immediately after navigate can
+            // expose the previous provider document (or WebView background) for
+            // a frame, which looks like a native 420x480 window flashing.
+            let request_id = LOGIN_REQUEST_ID.fetch_add(1, Ordering::Relaxed) + 1;
+            if let Ok(mut pending) = login_page_load().lock() {
+                *pending = Some((request_id, Instant::now()));
+            }
             if let Err(error) = login.navigate(url) {
+                if let Ok(mut pending) = login_page_load().lock() {
+                    *pending = None;
+                }
                 log::error!("[logout] failed to navigate to local login: {error}");
+            } else {
+                log::info!(
+                    "[logout] waiting for local login page readiness before showing window"
+                );
             }
         } else {
             log::error!("[logout] local login URL is unavailable");
-        }
-        if let Err(error) = login
-            .unminimize()
-            .and_then(|_| login.show())
-            .and_then(|_| login.set_focus())
-        {
-            log::error!("[logout] failed to show local login window: {error}");
         }
     }
     log::info!("[logout] completed");
