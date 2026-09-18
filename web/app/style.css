@@ -51,6 +51,7 @@ button { font: inherit; }
   width: 28px;
   height: 28px;
   object-fit: contain;
+  transform: translateX(-4px);
 }
 
 .app-list {

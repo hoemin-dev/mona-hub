@@ -247,7 +247,7 @@ button {
   height: 2px;
   overflow: hidden;
   border-radius: 1px;
-  background: rgb(49 129 91 / 22%);
+  background: transparent;
   transform: translateX(-50%);
 }
 
