@@ -105,9 +105,9 @@ button { font: inherit; }
 .app-label {
   display: block;
   width: 42px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 400;
-  letter-spacing: -0.2px;
+  /* letter-spacing: -0.2px; */
   line-height: 11px;
   text-align: center;
   white-space: nowrap;
@@ -147,9 +147,9 @@ button { font: inherit; }
 
 .utility-label {
   width: 42px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 400;
-  letter-spacing: -0.2px;
+  /* letter-spacing: -0.2px; */
   line-height: 11px;
   text-align: center;
   white-space: nowrap;
@@ -186,8 +186,8 @@ body > .appbar ~ #sessionLoading {
   --profile-end: #253f33;
   position: relative;
   display: grid;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   place-items: center;
   padding: 0;
   border: 0;
