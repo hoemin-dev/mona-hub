@@ -1,8 +1,10 @@
-const CACHE_NAME = "mona-hub-v2";
+const CACHE_NAME = "mona-hub-v3";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/style.css",
+  "/assets/fonts/pretendard/pretendard.css",
+  "/assets/fonts/pretendard/PretendardVariable.woff2",
   "/app.js",
   "/manifest.webmanifest",
   "/icons/icon-192.png",

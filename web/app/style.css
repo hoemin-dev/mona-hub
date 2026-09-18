@@ -122,9 +122,9 @@ button { font: inherit; }
 }
 
 .profile-avatar {
-  --profile-stroke: #8fd3ad;
-  --profile-start: #e8f8ef;
-  --profile-end: #d2f0df;
+  --profile-stroke: #4f7961;
+  --profile-start: #315542;
+  --profile-end: #253f33;
   position: relative;
   display: grid;
   width: 28px;
@@ -140,9 +140,9 @@ button { font: inherit; }
 
 .profile-avatar:hover,
 .profile-avatar[aria-expanded="true"] {
-  --profile-stroke: #70c899;
-  --profile-start: #def5e8;
-  --profile-end: #c4ead4;
+  --profile-stroke: #669078;
+  --profile-start: #3a624d;
+  --profile-end: #2c493a;
 }
 
 /* Clip the shoulders to the circle and paint the 1px outline above them. */
