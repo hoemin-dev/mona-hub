@@ -139,8 +139,8 @@ button { font: inherit; }
 
 .utility-icon {
   display: block;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   object-fit: contain;
   filter: grayscale(.18) saturate(.88) brightness(.94);
   opacity: .92;
@@ -148,8 +148,8 @@ button { font: inherit; }
 
 .utility-label {
   width: 34px;
-  font-size: 8px;
-  font-weight: 650;
+  font-size: 12px;
+  font-weight: 400;
   letter-spacing: -0.35px;
   line-height: 9px;
   text-align: center;
