@@ -142,8 +142,8 @@ button { font: inherit; }
   width: 24px;
   height: 24px;
   object-fit: contain;
-  filter: grayscale(.75) saturate(.55);
-  opacity: .78;
+  filter: grayscale(.18) saturate(.88) brightness(.94);
+  opacity: .92;
 }
 
 .utility-label {
@@ -162,7 +162,7 @@ button { font: inherit; }
 }
 
 .utility-button:hover .utility-icon {
-  filter: none;
+  filter: grayscale(0) saturate(1.05) brightness(1.04);
   opacity: 1;
   transform: scale(1.06);
 }
