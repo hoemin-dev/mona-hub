@@ -90,9 +90,9 @@ body {
 
 .utility-label {
   width: 34px;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 400;
-  letter-spacing: -0.35px;
+  letter-spacing: -0.5px;
   line-height: 9px;
   text-align: center;
   white-space: nowrap;
