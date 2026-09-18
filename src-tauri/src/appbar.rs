@@ -32,7 +32,7 @@ use windows::{
     },
 };
 
-pub const LOGICAL_WIDTH: i32 = 40;
+pub const LOGICAL_WIDTH: i32 = 44;
 const DEFAULT_DPI: u32 = 96;
 const WM_MONA_REPOSITION: u32 = 0x8000 + 0x04d;
 
@@ -493,10 +493,10 @@ mod tests {
 
     #[test]
     fn converts_small_width_at_supported_scales() {
-        assert_eq!(physical_width(96), 40);
-        assert_eq!(physical_width(120), 50);
-        assert_eq!(physical_width(144), 60);
-        assert_eq!(physical_width(168), 70);
-        assert_eq!(physical_width(192), 80);
+        assert_eq!(physical_width(96), 44);
+        assert_eq!(physical_width(120), 55);
+        assert_eq!(physical_width(144), 66);
+        assert_eq!(physical_width(168), 77);
+        assert_eq!(physical_width(192), 88);
     }
 }

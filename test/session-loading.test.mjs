@@ -38,7 +38,7 @@ test('loading spinner remains animated when reduced motion is requested', () => 
 });
 test('loading preserves the brand, utility, and profile rows and covers only the center', () => {
   assert.doesNotMatch(loadingStyles, /\.session-loading\s+main\s*\{[^}]*visibility:\s*hidden/);
-  assert.match(loadingStyles, /#sessionLoading\s*\{[\s\S]*?inset:\s*42px\s+0\s+44px/);
+  assert.match(loadingStyles, /#sessionLoading\s*\{[\s\S]*?inset:\s*46px\s+0\s+48px/);
   assert.match(loadingStyles, /\.session-loading\s+\.utility-list\s*\{[\s\S]*?z-index:\s*1001/);
 });
 for (const path of ['manual', 'fast path']) test(`${path}: loading lasts until cached PER session resolves`, async () => {

@@ -1,4 +1,4 @@
-/* Fits the 40px dock without resizing or creating another window. */
+/* Fits the 44px dock without resizing or creating another window. */
 html.session-loading { background: #171a20; }
 .session-loading body { background: #171a20; }
 .session-loading .utility-list {
@@ -8,7 +8,7 @@ html.session-loading { background: #171a20; }
 #sessionLoading {
   position: fixed;
   /* Cover the center while the utility list is kept visible above this layer. */
-  inset: 42px 0 44px;
+  inset: 46px 0 48px;
   z-index: 1000;
   display: flex;
   flex-direction: column;
@@ -19,7 +19,7 @@ html.session-loading { background: #171a20; }
   border-left: 1px solid #30353d;
   background: linear-gradient(180deg, #1f232a, #171a20);
   color: #a0aaa5;
-  font: 12px/1.5 "Segoe UI", "Malgun Gothic", sans-serif;
+  font: 13px/1.5 "Segoe UI", "Malgun Gothic", sans-serif;
   text-align: center;
   user-select: none;
 }
@@ -27,8 +27,8 @@ html.session-loading { background: #171a20; }
   display: block;
   flex: 0 0 auto;
   box-sizing: border-box;
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   border: 2px solid #35423d;
   border-top-color: #63d69d;
   border-radius: 50%;
