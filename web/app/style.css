@@ -51,7 +51,6 @@ button { font: inherit; }
   width: 28px;
   height: 28px;
   object-fit: contain;
-  transform: translateX(-1px);
 }
 
 .app-list {
@@ -106,7 +105,7 @@ button { font: inherit; }
 .app-label {
   display: block;
   width: 38px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 400;
   letter-spacing: -0.5px;
   line-height: 10px;
