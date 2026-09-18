@@ -49,8 +49,8 @@ body {
 
 .hub-icon {
   display: block;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   object-fit: contain;
   image-rendering: auto;
 }
