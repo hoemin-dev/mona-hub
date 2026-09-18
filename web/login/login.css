@@ -257,16 +257,16 @@ button {
 
 .login-progress-bar {
   position: absolute;
-  inset: 0 auto 0 -21%;
-  width: 21%;
+  inset: 0 auto 0 -10%;
+  width: 10%;
   border-radius: inherit;
   background: #43966c;
-  animation: login-progress-slide 1.1s ease-in-out infinite;
+  animation: login-progress-slide 0.9s ease-in-out infinite;
 }
 
 @keyframes login-progress-slide {
   to {
-    transform: translateX(338%);
+    transform: translateX(100%);
   }
 }
 
