@@ -22,7 +22,7 @@ use windows::{
             WindowsAndMessaging::{
                 CallWindowProcW, GetClientRect, GetWindowLongPtrW, GetWindowRect, IsWindowVisible,
                 PostMessageW, RegisterWindowMessageW, SetWindowLongPtrW, SetWindowPos,
-                IsIconic, ShowWindow, SetForegroundWindow, SW_RESTORE,
+                IsIconic, ShowWindow, SetForegroundWindow, SW_HIDE, SW_RESTORE,
                 GWLP_WNDPROC, GWL_EXSTYLE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
                 SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, WM_ACTIVATE, WM_DESTROY, WM_DEVICECHANGE,
                 WM_DISPLAYCHANGE, WM_DPICHANGED, WM_SETTINGCHANGE, WM_WINDOWPOSCHANGED, WNDPROC,
@@ -161,6 +161,7 @@ fn negotiate(hwnd: HWND, show: bool) -> Result<(), String> {
     {
         return Ok(());
     }
+    let was_visible = unsafe { IsWindowVisible(hwnd).as_bool() };
     let result = (|| unsafe {
         let monitor = monitor_rect(hwnd)?;
         let dpi = window_dpi(hwnd);
@@ -182,6 +183,31 @@ fn negotiate(hwnd: HWND, show: bool) -> Result<(), String> {
         SHAppBarMessage(ABM_QUERYPOS, &mut bar);
         let queried = bar.rc;
         bar.rc.left = bar.rc.right - width;
+
+        // ABM_SETPOS immediately removes the AppBar rectangle from the desktop
+        // work area.  On first launch the window is still hidden, so reserving
+        // first leaves a short-lived transparent strip while the shell moves
+        // the other windows.  Place and reveal the AppBar at the queried
+        // rectangle before committing that reservation.  POSITIONING prevents
+        // the resulting WM_WINDOWPOSCHANGED from notifying the shell early.
+        if show {
+            let (w, h) = (bar.rc.right - bar.rc.left, bar.rc.bottom - bar.rc.top);
+            if w <= 0 || h <= 0 {
+                return Err(format!("잘못된 AppBar 영역: {}", rect_text(bar.rc)));
+            }
+            SetWindowPos(
+                hwnd,
+                None,
+                bar.rc.left,
+                bar.rc.top,
+                w,
+                h,
+                SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW,
+            )
+            .map_err(|e| format!("AppBar 창 이동 실패: {e}"))?;
+            log_window_state_raw(hwnd, "MAIN_FIRST_VISIBLE");
+        }
+
         SETPOS_COUNT.fetch_add(1, Ordering::Relaxed);
         log_window_state_raw(hwnd, "APPBAR_SETPOS");
         if SHAppBarMessage(ABM_SETPOS, &mut bar) == 0 {
@@ -195,16 +221,17 @@ fn negotiate(hwnd: HWND, show: bool) -> Result<(), String> {
         if w <= 0 || h <= 0 {
             return Err(format!("잘못된 AppBar 영역: {}", rect_text(final_rect)));
         }
-        let mut flags = SWP_NOACTIVATE | SWP_NOZORDER;
-        if show {
-            flags |= SWP_SHOWWINDOW;
-        }
-        SetWindowPos(hwnd, None, final_rect.left, final_rect.top, w, h, flags)
-            .map_err(|e| format!("AppBar 창 이동 실패: {e}"))?;
+        SetWindowPos(
+            hwnd,
+            None,
+            final_rect.left,
+            final_rect.top,
+            w,
+            h,
+            SWP_NOACTIVATE | SWP_NOZORDER,
+        )
+        .map_err(|e| format!("AppBar 창 이동 실패: {e}"))?;
         log_window_state_raw(hwnd, "APPBAR_SETWINDOWPOS_DONE");
-        if show {
-            log_window_state_raw(hwnd, "MAIN_FIRST_VISIBLE");
-        }
 
         #[cfg(debug_assertions)]
         {
@@ -217,6 +244,11 @@ fn negotiate(hwnd: HWND, show: bool) -> Result<(), String> {
         Ok(())
     })();
     POSITIONING.store(false, Ordering::SeqCst);
+    if result.is_err() && show && !was_visible {
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_HIDE);
+        }
+    }
     result
 }
 
