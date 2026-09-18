@@ -192,6 +192,7 @@ button {
 }*/
 
 .login-action {
+  position: relative;
   display: grid;
   width: min(100%, 268px);
   justify-items: center;
@@ -236,6 +237,45 @@ button {
   color: #717b79;
   font-size: 12px;
   text-align: center;
+}
+
+.login-progress {
+  position: absolute;
+  right: 0;
+  bottom: -9px;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 1px;
+  background: rgb(49 129 91 / 22%);
+}
+
+.login-progress[hidden] {
+  display: none;
+}
+
+.login-progress-bar {
+  position: absolute;
+  inset: 0 auto 0 -42%;
+  width: 42%;
+  border-radius: inherit;
+  background: #4fbd86;
+  animation: login-progress-slide 0.85s ease-in-out infinite;
+}
+
+@keyframes login-progress-slide {
+  to {
+    transform: translateX(338%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-progress-bar {
+    inset-inline: 0;
+    width: 100%;
+    animation: none;
+  }
 }
 
 .login-footer {

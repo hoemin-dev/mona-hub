@@ -5,6 +5,7 @@ const closeButton = document.getElementById("closeButton");
 const minimizeButton = document.getElementById("minimizeButton");
 const loginButton = document.getElementById("loginButton");
 const loginStatus = document.getElementById("loginStatus");
+const loginProgress = document.getElementById("loginProgress");
 const accessAuth = new AccessAuthProvider({ appUrl: authConfig.appUrl });
 
 function pageLog(event) {
@@ -47,6 +48,10 @@ function setLoginStatus(message) {
   loginStatus.textContent = message;
 }
 
+function setLoginProgress(visible) {
+  loginProgress.hidden = !visible;
+}
+
 async function handleLogin() {
   const invoke = window.__TAURI__?.core?.invoke;
   if (!invoke) {
@@ -56,6 +61,7 @@ async function handleLogin() {
 
   loginButton.disabled = true;
   setLoginStatus("Cloudflare Access에 연결 중입니다.");
+  setLoginProgress(true);
 
   try {
     // Rust가 이 시점부터 최종 navigation을 관찰한 뒤에만 성공 처리한다.
@@ -64,6 +70,7 @@ async function handleLogin() {
   } catch (error) {
     loginButton.disabled = false;
     setLoginStatus("인증을 시작하지 못했습니다.");
+    setLoginProgress(false);
     console.error("Cloudflare Access 로그인 시작 실패:", error);
   }
 }
