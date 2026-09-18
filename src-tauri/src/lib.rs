@@ -297,6 +297,46 @@ fn set_login_window_external_mode(window: &WebviewWindow) -> tauri::Result<()> {
     set_login_window_mode(window, LoginPresentationMode::ExternalAuth)
 }
 
+fn present_logout_window(window: &WebviewWindow) -> tauri::Result<()> {
+    set_login_window_external_mode(window)?;
+    window.set_always_on_top(true)?;
+    window.unminimize()?;
+    window.show()?;
+    window.set_focus()
+}
+
+fn commit_logout(window: &WebviewWindow) {
+    let app = window.app_handle();
+    if AUTH_FLOW_STATE
+        .compare_exchange(
+            AUTH_LOGGING_OUT_ENTRA,
+            AUTH_LOGGING_OUT_CLOUDFLARE,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        )
+        .is_err()
+    {
+        return;
+    }
+    set_auth_state(app, AUTH_LOGGING_OUT_CLOUDFLARE);
+    log::info!("[logout] COMMIT; clearing authenticated app state");
+    identity_session::clear();
+    close_managed_web_app_windows(app);
+    if let Some(popup) = app.get_webview_window(PROFILE_POPUP_LABEL) {
+        let _ = popup.hide();
+    }
+    if let Some(main) = app.get_webview_window("main") {
+        if let Err(error) = main.navigate(app_url(PRELOGIN_PATH)) {
+            log::error!("[logout] main -> prelogin during commit failed: {error}");
+        }
+    }
+    let _ = window.set_always_on_top(false);
+    let _ = window.hide();
+    if let Err(error) = window.navigate(app_url(ACCESS_LOGOUT_PATH)) {
+        log::error!("[logout] Cloudflare commit navigation failed: {error}");
+    }
+}
+
 fn complete_logout(app: &AppHandle) {
     // The external logout has already succeeded at this point. Commit the shared
     // state first so every UI surface observes PRELOGIN even if a later window
@@ -324,6 +364,7 @@ fn complete_logout(app: &AppHandle) {
     }
 
     if let Some(login) = app.get_webview_window(LOGIN_WINDOW_LABEL) {
+        let _ = login.set_always_on_top(false);
         if let Err(error) = set_login_window_local_mode(&login) {
             log::error!("[logout] failed to restore local login chrome: {error}");
         }
@@ -606,18 +647,19 @@ fn dismiss_login_window(window: &WebviewWindow) -> tauri::Result<()> {
     if LOGIN_WINDOW_DESTROYING.load(Ordering::Acquire) {
         return Ok(());
     }
+    let state = AUTH_FLOW_STATE.load(Ordering::Acquire);
     let destroy = should_destroy_login_on_close(
         &window.url()?,
-        AUTH_FLOW_STATE.load(Ordering::Acquire),
-    );
+        state,
+    ) || state == AUTH_LOGGING_OUT_ENTRA;
     handle_login_window_close(window);
     if !destroy {
         return window.hide();
     }
 
-    // Invalidate pending authentication before discarding the WebView controller.
-    // Its shared cookie/profile directory is deliberately left intact.
-    set_auth_state(window.app_handle(), AUTH_IDLE);
+    // The shared cookie/profile directory is deliberately left intact. Login
+    // cancellation has already moved to IDLE; logout cancellation has restored
+    // AUTHENTICATED without touching the cached identity or application windows.
     LOGIN_WINDOW_DESTROYING.store(true, Ordering::Release);
     if let Ok(mut pending) = login_page_load().lock() {
         *pending = None;
@@ -626,16 +668,19 @@ fn dismiss_login_window(window: &WebviewWindow) -> tauri::Result<()> {
         LOGIN_WINDOW_DESTROYING.store(false, Ordering::Release);
         return Err(error);
     }
-    log::info!("[auth] local login window destruction requested");
+    log::info!("[auth] login/provider window destruction requested");
     Ok(())
 }
 
 fn auth_state_after_login_window_close(state: u8) -> u8 {
     match state {
-        AUTH_WAITING_FOR_LOGIN | AUTH_WAITING_FOR_MAIN | AUTH_RESOLVING_IDENTITY => AUTH_IDLE,
-        // Closing the provider window during logout is only a presentation action.
-        // In particular, an Entra account-picker close is not proof of logout and
-        // must never restore either the authenticated or pre-login state.
+        AUTH_WAITING_FOR_LOGIN
+        | AUTH_WAITING_FOR_MAIN
+        | AUTH_RESOLVING_IDENTITY
+        | AUTH_CHECKING_SESSION => AUTH_IDLE,
+        // The Microsoft account picker is the cancellable phase. No local state
+        // has been cleared yet, so X restores the original authenticated session.
+        AUTH_LOGGING_OUT_ENTRA => AUTHENTICATED,
         _ => state,
     }
 }
@@ -644,11 +689,18 @@ fn handle_login_window_close(window: &WebviewWindow) {
     let state = AUTH_FLOW_STATE.load(Ordering::Acquire);
     let next = auth_state_after_login_window_close(state);
     if next != state {
+        if state == AUTH_LOGGING_OUT_ENTRA {
+            let _ = window.set_always_on_top(false);
+        }
         set_auth_state(window.app_handle(), next);
-        log::info!("[auth] login cancelled; state=PRELOGIN");
-    } else if matches!(state, AUTH_LOGGING_OUT_CLOUDFLARE | AUTH_LOGGING_OUT_ENTRA) {
+        if state == AUTH_LOGGING_OUT_ENTRA {
+            log::info!("[logout] cancelled; original authenticated session preserved");
+        } else {
+            log::info!("[auth] login cancelled; state=PRELOGIN");
+        }
+    } else if state == AUTH_LOGGING_OUT_CLOUDFLARE {
         log::info!(
-            "[logout] provider window hidden; logout remains in progress state={}",
+            "[logout] commit window hidden; logout remains in progress state={}",
             auth_state_name(state)
         );
     }
@@ -801,7 +853,7 @@ fn is_active_login_url(url: &Url) -> bool {
 }
 
 fn should_redirect_main_during_logout(url: &Url, state: u8) -> bool {
-    matches!(state, AUTH_LOGGING_OUT_CLOUDFLARE | AUTH_LOGGING_OUT_ENTRA)
+    state == AUTH_LOGGING_OUT_CLOUDFLARE
         && !matches!(classify_url(url), UrlRole::ProtectedApp | UrlRole::MonaHubPrelogin)
 }
 
@@ -829,7 +881,7 @@ mod login_url_tests {
     }
 
     #[test]
-    fn provider_close_cancels_login_but_never_cancels_logout() {
+    fn provider_close_cancels_login_and_rolls_back_precommit_logout() {
         for state in [
             AUTH_WAITING_FOR_LOGIN,
             AUTH_WAITING_FOR_MAIN,
@@ -837,33 +889,34 @@ mod login_url_tests {
         ] {
             assert_eq!(auth_state_after_login_window_close(state), AUTH_IDLE);
         }
-        for state in [AUTH_LOGGING_OUT_CLOUDFLARE, AUTH_LOGGING_OUT_ENTRA] {
-            assert_eq!(auth_state_after_login_window_close(state), state);
-            assert!(!session_is_loading(state));
-            assert_eq!(auth_ui_state(state), "logout-pending");
-        }
+        assert_eq!(
+            auth_state_after_login_window_close(AUTH_LOGGING_OUT_ENTRA),
+            AUTHENTICATED
+        );
+        assert_eq!(
+            auth_state_after_login_window_close(AUTH_LOGGING_OUT_CLOUDFLARE),
+            AUTH_LOGGING_OUT_CLOUDFLARE
+        );
     }
 
     #[test]
     fn refreshed_main_cannot_leave_the_pending_shell_during_logout() {
-        for state in [AUTH_LOGGING_OUT_CLOUDFLARE, AUTH_LOGGING_OUT_ENTRA] {
-            assert!(!should_redirect_main_during_logout(
-                &url("https://mona-hub.pages.dev/app/"),
-                state
-            ));
-            assert!(!should_redirect_main_during_logout(
-                &url("https://mona-hub.pages.dev/prelogin/"),
-                state
-            ));
-            assert!(should_redirect_main_during_logout(
-                &url("https://example.cloudflareaccess.com/cdn-cgi/access/login"),
-                state
-            ));
-            assert!(should_redirect_main_during_logout(
-                &url("https://login.microsoftonline.com/example/oauth2/v2.0/authorize"),
-                state
-            ));
-        }
+        assert!(!should_redirect_main_during_logout(
+            &url("https://mona-hub.pages.dev/app/"),
+            AUTH_LOGGING_OUT_CLOUDFLARE
+        ));
+        assert!(!should_redirect_main_during_logout(
+            &url("https://mona-hub.pages.dev/prelogin/"),
+            AUTH_LOGGING_OUT_CLOUDFLARE
+        ));
+        assert!(should_redirect_main_during_logout(
+            &url("https://example.cloudflareaccess.com/cdn-cgi/access/login"),
+            AUTH_LOGGING_OUT_CLOUDFLARE
+        ));
+        assert!(!should_redirect_main_during_logout(
+            &url("https://example.cloudflareaccess.com/cdn-cgi/access/login"),
+            AUTH_LOGGING_OUT_ENTRA
+        ));
     }
 
     fn url(value: &str) -> Url {
@@ -1287,7 +1340,9 @@ fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadP
         && is_logout_complete_url(url)
     {
         log::info!("[logout] logout-complete reached");
-        complete_logout(window.app_handle());
+        if let Some(login) = window.app_handle().get_webview_window(LOGIN_WINDOW_LABEL) {
+            commit_logout(&login);
+        }
         return;
     }
 
@@ -1302,7 +1357,9 @@ fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadP
         && is_entra_logout_session_url(url)
     {
         log::info!("[logout] Entra logoutsession completed");
-        complete_logout(window.app_handle());
+        if let Some(login) = window.app_handle().get_webview_window(LOGIN_WINDOW_LABEL) {
+            commit_logout(&login);
+        }
         return;
     }
 
@@ -1317,24 +1374,8 @@ fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadP
     }
 
     if label == LOGIN_WINDOW_LABEL && state == AUTH_LOGGING_OUT_CLOUDFLARE {
-        set_auth_state(window.app_handle(), AUTH_LOGGING_OUT_ENTRA);
-        log::info!("[logout] cloudflare logout navigation completed");
-        log::info!("[logout] entra logout");
-        if let Err(error) = window.navigate(entra_logout_url()) {
-            log::error!("[logout] Entra navigation failed; logout remains pending: {error}");
-        } else if let Some(login_window) = window
-            .app_handle()
-            .get_webview_window(LOGIN_WINDOW_LABEL)
-        {
-            log::info!("[logout] opening login window");
-            if let Err(error) = login_window
-                .unminimize()
-                .and_then(|_| login_window.show())
-                .and_then(|_| login_window.set_focus())
-            {
-                log::error!("[logout] failed to show logout window: {error}");
-            }
-        }
+        log::info!("[logout] Cloudflare logout commit completed");
+        complete_logout(window.app_handle());
         return;
     }
 
@@ -1552,20 +1593,14 @@ async fn begin_access_logout(window: WebviewWindow) -> Result<(), String> {
     AUTH_FLOW_STATE
         .compare_exchange(
             AUTHENTICATED,
-            AUTH_LOGGING_OUT_CLOUDFLARE,
+            AUTH_LOGGING_OUT_ENTRA,
             Ordering::AcqRel,
             Ordering::Acquire,
         )
         .map_err(|state| format!("로그아웃을 시작할 수 없는 인증 상태입니다: {state}"))?;
-    // App windows are no longer usable as soon as logout is requested. Close them
-    // before any Cloudflare or Entra navigation, without making cleanup a logout
-    // prerequisite.
-    identity_session::clear();
-    close_managed_web_app_windows(window.app_handle());
-    sync_tray_auth_menu(window.app_handle(), AUTH_LOGGING_OUT_CLOUDFLARE);
-    if let Err(error) = window.navigate(app_url(PRELOGIN_PATH)) {
-        log::error!("[logout] main -> pending prelogin failed: {error}");
-    }
+    // This is the cancellable phase. Keep identity, AppBar, and every managed
+    // application intact until Entra reports a completed logout.
+    sync_tray_auth_menu(window.app_handle(), AUTH_LOGGING_OUT_ENTRA);
     sync_session_loading(window.app_handle());
     let Some(login) = window.app_handle().get_webview_window(LOGIN_WINDOW_LABEL) else {
         // A successful startup fast path has never created this window. Building
@@ -1574,14 +1609,23 @@ async fn begin_access_logout(window: WebviewWindow) -> Result<(), String> {
         let app = window.app_handle().clone();
         let handle = app.clone();
         return app.run_on_main_thread(move || {
-            if AUTH_FLOW_STATE.load(Ordering::Acquire) != AUTH_LOGGING_OUT_CLOUDFLARE { return; }
+            if AUTH_FLOW_STATE.load(Ordering::Acquire) != AUTH_LOGGING_OUT_ENTRA { return; }
             startup_trace::mark("logout.lazy-login.build");
             if let Err(error) = show_or_create_login_window(&handle, "logout") {
-                log::error!(
-                    "[logout] login window creation failed; logout remains pending: {error}"
-                );
+                set_auth_state(&handle, AUTHENTICATED);
+                log::error!("[logout] provider window creation failed; cancelled: {error}");
+                return;
+            }
+            if let Some(login) = handle.get_webview_window(LOGIN_WINDOW_LABEL) {
+                if let Err(error) = present_logout_window(&login) {
+                    let _ = login.set_always_on_top(false);
+                    let _ = login.hide();
+                    set_auth_state(&handle, AUTHENTICATED);
+                    log::error!("[logout] provider window presentation failed; cancelled: {error}");
+                }
             }
         }).map_err(|error| {
+            set_auth_state(window.app_handle(), AUTHENTICATED);
             error.to_string()
         });
     };
@@ -1595,19 +1639,18 @@ async fn begin_access_logout(window: WebviewWindow) -> Result<(), String> {
             log::warn!("[logout] existing login window current url=<unavailable: {error}>")
         }
     }
-    if let Err(error) = set_login_window_external_mode(&login) {
-        return Err(format!("외부 인증 창 모드 설정에 실패했습니다: {error}"));
+    log::info!("[logout] Microsoft Entra logout");
+    if let Err(error) = login.navigate(entra_logout_url()) {
+        set_auth_state(window.app_handle(), AUTHENTICATED);
+        return Err(format!("Microsoft 로그아웃 탐색에 실패했습니다: {error}"));
     }
-    log::info!("[logout] cloudflare access logout");
-    login
-        .navigate(app_url(ACCESS_LOGOUT_PATH))
-        .map_err(|error| {
-            let _ = login.hide();
-            log::error!(
-                "[logout] Cloudflare navigation failed; logout remains pending: {error}"
-            );
-            error.to_string()
-        })
+    if let Err(error) = present_logout_window(&login) {
+        let _ = login.set_always_on_top(false);
+        let _ = login.hide();
+        set_auth_state(window.app_handle(), AUTHENTICATED);
+        return Err(format!("Microsoft 로그아웃 창 표시에 실패했습니다: {error}"));
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1864,7 +1907,7 @@ fn show_or_create_login_window(app: &AppHandle, origin: &str) -> tauri::Result<(
     let initial_url = WebviewUrl::External(if origin == "startup" {
         app_url(ACCESS_APP_PATH)
     } else if origin == "logout" {
-        app_url(ACCESS_LOGOUT_PATH)
+        entra_logout_url()
     } else {
         app_url(LOGIN_START_PATH)
     });
@@ -2131,13 +2174,13 @@ pub fn run() {
                                     });
                                 }
                             } else {
+                                if state == AUTH_LOGGING_OUT_CLOUDFLARE {
+                                    log::info!("[logout] tray action ignored during COMMIT");
+                                    return;
+                                }
                                 match app.get_webview_window(LOGIN_WINDOW_LABEL) {
                                     Some(login) => {
-                                        if let Err(error) = login
-                                            .unminimize()
-                                            .and_then(|_| login.show())
-                                            .and_then(|_| login.set_focus())
-                                        {
+                                        if let Err(error) = present_logout_window(&login) {
                                             log::error!(
                                                 "[logout] failed to reopen pending provider window: {error}"
                                             );

@@ -67,7 +67,7 @@ test('snapshot before module load restores idle instead of leaving a stuck spinn
   assert.equal(f.main.inert, false);
   assert.equal(f.elements.has('sessionLoading'), false);
 });
-test('Rust logout-pending survives AppBar reload without covering prelogin UI', async () => {
+test('precommit logout preserves the rendered AppBar without a loading overlay', async () => {
   const f = fixture({ snapshot: false, authState: 'logout-pending' });
   vm.runInContext(appSource, f.context);
   f.finish(null);
