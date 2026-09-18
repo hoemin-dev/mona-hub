@@ -67,26 +67,19 @@ test('snapshot before module load restores idle instead of leaving a stuck spinn
   assert.equal(f.main.inert, false);
   assert.equal(f.elements.has('sessionLoading'), false);
 });
-test('Rust logout-pending snapshot survives AppBar reload and rerender', async () => {
-  const f = fixture({ snapshot: true, authState: 'logout-pending' });
+test('Rust logout-pending survives AppBar reload without covering prelogin UI', async () => {
+  const f = fixture({ snapshot: false, authState: 'logout-pending' });
   vm.runInContext(appSource, f.context);
   f.finish(null);
   await settle();
-  assert.equal(f.main.inert, true);
-  assert.equal(f.classes.has('session-loading'), true);
-  assert.match(f.elements.get('sessionLoading').innerHTML, /로그아웃 진행 중/);
+  assert.equal(f.main.inert, false);
+  assert.equal(f.classes.has('session-loading'), false);
+  assert.equal(f.elements.has('sessionLoading'), false);
   assert.equal(f.calls.includes('redirect'), false);
 
-  f.update(true);
-  assert.match(f.elements.get('sessionLoading').innerHTML, /로그아웃 진행 중/);
-});
-test('late native logout-pending snapshot replaces the initial loading render', () => {
-  const f = fixture();
-  assert.match(f.elements.get('sessionLoading').innerHTML, /준비중/);
-  f.context.window.__monaAuthState = 'logout-pending';
-  f.context.window.__monaSessionLoading = true;
-  f.context.window.dispatchEvent(new Event('mona:session-loading'));
-  assert.match(f.elements.get('sessionLoading').innerHTML, /로그아웃 진행 중/);
+  f.update(false);
+  assert.equal(f.main.inert, false);
+  assert.equal(f.elements.has('sessionLoading'), false);
 });
 
 

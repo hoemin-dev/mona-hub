@@ -182,13 +182,7 @@ fn set_auth_state(app: &AppHandle, state: u8) {
 }
 
 fn session_is_loading(state: u8) -> bool {
-    matches!(
-        state,
-        AUTH_RESOLVING_IDENTITY
-            | AUTH_WAITING_FOR_MAIN
-            | AUTH_LOGGING_OUT_CLOUDFLARE
-            | AUTH_LOGGING_OUT_ENTRA
-    )
+    matches!(state, AUTH_RESOLVING_IDENTITY | AUTH_WAITING_FOR_MAIN)
 }
 
 fn auth_ui_state(state: u8) -> &'static str {
@@ -836,7 +830,7 @@ mod login_url_tests {
         }
         for state in [AUTH_LOGGING_OUT_CLOUDFLARE, AUTH_LOGGING_OUT_ENTRA] {
             assert_eq!(auth_state_after_login_window_close(state), state);
-            assert!(session_is_loading(state));
+            assert!(!session_is_loading(state));
             assert_eq!(auth_ui_state(state), "logout-pending");
         }
     }
@@ -1524,6 +1518,9 @@ async fn begin_access_logout(window: WebviewWindow) -> Result<(), String> {
     identity_session::clear();
     close_managed_web_app_windows(window.app_handle());
     sync_tray_auth_menu(window.app_handle(), AUTH_LOGGING_OUT_CLOUDFLARE);
+    if let Err(error) = window.navigate(app_url(PRELOGIN_PATH)) {
+        log::error!("[logout] main -> pending prelogin failed: {error}");
+    }
     sync_session_loading(window.app_handle());
     let Some(login) = window.app_handle().get_webview_window(LOGIN_WINDOW_LABEL) else {
         // A successful startup fast path has never created this window. Building
