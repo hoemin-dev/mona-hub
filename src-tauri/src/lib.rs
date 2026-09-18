@@ -610,33 +610,27 @@ fn dismiss_login_window(window: &WebviewWindow) -> tauri::Result<()> {
     Ok(())
 }
 
+fn auth_state_after_login_window_close(state: u8) -> u8 {
+    match state {
+        AUTH_WAITING_FOR_LOGIN | AUTH_WAITING_FOR_MAIN | AUTH_RESOLVING_IDENTITY => AUTH_IDLE,
+        // Closing the provider window during logout is only a presentation action.
+        // In particular, an Entra account-picker close is not proof of logout and
+        // must never restore either the authenticated or pre-login state.
+        _ => state,
+    }
+}
+
 fn handle_login_window_close(window: &WebviewWindow) {
     let state = AUTH_FLOW_STATE.load(Ordering::Acquire);
-    if state == AUTH_LOGGING_OUT_CLOUDFLARE {
-        set_auth_state(window.app_handle(), AUTHENTICATED);
-        if let Ok(start) = login_start_url().lock() {
-            if let Some(url) = start.clone() {
-                let _ = window.navigate(url);
-            }
-        }
-        log::warn!(
-            "[logout] cancelled by user; runtime identity cleared; returning to prelogin"
-        );
-    } else if state == AUTH_LOGGING_OUT_ENTRA {
-        set_auth_state(window.app_handle(), AUTH_IDLE);
-        if let Some(main) = window.app_handle().get_webview_window("main") {
-            let _ = main.navigate(app_url(PRELOGIN_PATH));
-        }
-        let _ = set_login_window_local_mode(window);
-        if let Some(url) = resolved_login_start_url(window.app_handle()) {
-            let _ = window.navigate(url);
-        }
-        log::warn!(
-            "[logout] Entra logout window closed after Cloudflare logout; state kept PRELOGIN"
-        );
-    } else if matches!(state, AUTH_WAITING_FOR_LOGIN | AUTH_WAITING_FOR_MAIN | AUTH_RESOLVING_IDENTITY) {
-        set_auth_state(window.app_handle(), AUTH_IDLE);
+    let next = auth_state_after_login_window_close(state);
+    if next != state {
+        set_auth_state(window.app_handle(), next);
         log::info!("[auth] login cancelled; state=PRELOGIN");
+    } else if matches!(state, AUTH_LOGGING_OUT_CLOUDFLARE | AUTH_LOGGING_OUT_ENTRA) {
+        log::info!(
+            "[logout] provider window hidden; logout remains in progress state={}",
+            auth_state_name(state)
+        );
     }
     log::info!("[auth] login window close handled");
 }
@@ -797,6 +791,20 @@ mod login_url_tests {
         }
         for state in [AUTHENTICATED, AUTH_LOGGING_OUT_CLOUDFLARE, AUTH_LOGGING_OUT_ENTRA] {
             assert!(!should_destroy_login_on_close(&local, state));
+        }
+    }
+
+    #[test]
+    fn provider_close_cancels_login_but_never_cancels_logout() {
+        for state in [
+            AUTH_WAITING_FOR_LOGIN,
+            AUTH_WAITING_FOR_MAIN,
+            AUTH_RESOLVING_IDENTITY,
+        ] {
+            assert_eq!(auth_state_after_login_window_close(state), AUTH_IDLE);
+        }
+        for state in [AUTH_LOGGING_OUT_CLOUDFLARE, AUTH_LOGGING_OUT_ENTRA] {
+            assert_eq!(auth_state_after_login_window_close(state), state);
         }
     }
 
@@ -1206,8 +1214,7 @@ fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadP
         log::info!("[logout] cloudflare logout navigation completed");
         log::info!("[logout] entra logout");
         if let Err(error) = window.navigate(entra_logout_url()) {
-            set_auth_state(window.app_handle(), AUTHENTICATED);
-            log::error!("[logout] Entra navigation failed; logout can be retried: {error}");
+            log::error!("[logout] Entra navigation failed; logout remains pending: {error}");
         } else if let Some(login_window) = window
             .app_handle()
             .get_webview_window(LOGIN_WINDOW_LABEL)
@@ -1459,12 +1466,11 @@ async fn begin_access_logout(window: WebviewWindow) -> Result<(), String> {
             if AUTH_FLOW_STATE.load(Ordering::Acquire) != AUTH_LOGGING_OUT_CLOUDFLARE { return; }
             startup_trace::mark("logout.lazy-login.build");
             if let Err(error) = show_or_create_login_window(&handle, "logout") {
-                set_auth_state(&handle, AUTH_IDLE);
-                if let Some(main) = handle.get_webview_window("main") { let _ = main.navigate(app_url(PRELOGIN_PATH)); }
-                log::error!("[logout] login window creation failed: {error}");
+                log::error!(
+                    "[logout] login window creation failed; logout remains pending: {error}"
+                );
             }
         }).map_err(|error| {
-            set_auth_state(window.app_handle(), AUTH_IDLE);
             error.to_string()
         });
     };
@@ -1479,16 +1485,16 @@ async fn begin_access_logout(window: WebviewWindow) -> Result<(), String> {
         }
     }
     if let Err(error) = set_login_window_external_mode(&login) {
-        set_auth_state(window.app_handle(), AUTHENTICATED);
         return Err(format!("외부 인증 창 모드 설정에 실패했습니다: {error}"));
     }
     log::info!("[logout] cloudflare access logout");
     login
         .navigate(app_url(ACCESS_LOGOUT_PATH))
         .map_err(|error| {
-            set_auth_state(window.app_handle(), AUTHENTICATED);
             let _ = login.hide();
-            log::error!("[logout] Cloudflare navigation failed; logout can be retried: {error}");
+            log::error!(
+                "[logout] Cloudflare navigation failed; logout remains pending: {error}"
+            );
             error.to_string()
         })
 }
@@ -2014,9 +2020,26 @@ pub fn run() {
                                     });
                                 }
                             } else {
-                                log::info!(
-                                    "[auth] tray logout ignored; logout already in progress"
-                                );
+                                match app.get_webview_window(LOGIN_WINDOW_LABEL) {
+                                    Some(login) => {
+                                        if let Err(error) = login
+                                            .unminimize()
+                                            .and_then(|_| login.show())
+                                            .and_then(|_| login.set_focus())
+                                        {
+                                            log::error!(
+                                                "[logout] failed to reopen pending provider window: {error}"
+                                            );
+                                        } else {
+                                            log::info!(
+                                                "[logout] pending provider window reopened from tray"
+                                            );
+                                        }
+                                    }
+                                    None => log::warn!(
+                                        "[logout] cannot reopen pending provider window: window missing"
+                                    ),
+                                }
                             }
                         } else if let Err(error) = request_login(app, "tray") {
                             log::error!("[auth] tray login failed: {error}");

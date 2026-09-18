@@ -30,8 +30,8 @@ button { font: inherit; }
   width: 36px;
   height: 100%;
   min-height: 0;
-  border-left: 1px solid #5a6067;
-  background: linear-gradient(180deg, #4b5056 0%, #41464c 100%);
+  border-left: none;
+  background: linear-gradient(180deg, #191c22 0%, #15181e 100%);
 }
 
 .brand-area, .profile-area {
