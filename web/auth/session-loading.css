@@ -1,9 +1,13 @@
 /* Fits the 40px dock without resizing or creating another window. */
 html.session-loading { background: #171a20; }
 .session-loading body { background: #171a20; }
+.session-loading .utility-list {
+  position: relative;
+  z-index: 1001;
+}
 #sessionLoading {
   position: fixed;
-  /* Keep the AppBar brand and profile rows visible while only its center loads. */
+  /* Cover the center while the utility list is kept visible above this layer. */
   inset: 42px 0 44px;
   z-index: 1000;
   display: flex;

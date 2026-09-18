@@ -36,9 +36,10 @@ test('loading spinner remains animated when reduced motion is requested', () => 
   assert.match(loadingStyles, /animation:\s*session-spin\s+900ms\s+linear\s+infinite/);
   assert.doesNotMatch(reducedMotionRule, /animation:\s*none/);
 });
-test('loading preserves the brand and profile rows and covers only the center', () => {
+test('loading preserves the brand, utility, and profile rows and covers only the center', () => {
   assert.doesNotMatch(loadingStyles, /\.session-loading\s+main\s*\{[^}]*visibility:\s*hidden/);
   assert.match(loadingStyles, /#sessionLoading\s*\{[\s\S]*?inset:\s*42px\s+0\s+44px/);
+  assert.match(loadingStyles, /\.session-loading\s+\.utility-list\s*\{[\s\S]*?z-index:\s*1001/);
 });
 for (const path of ['manual', 'fast path']) test(`${path}: loading lasts until cached PER session resolves`, async () => {
   const f = fixture({ snapshot: path === 'manual' ? false : true });
