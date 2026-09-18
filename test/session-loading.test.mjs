@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { MonaSession } from '../web/auth/mona-session.js';
 const loadingSource = (await readFile(new URL('../web/auth/session-loading.js', import.meta.url), 'utf8')).replace('export function', 'function');
 const appSource = (await readFile(new URL('../web/app/app.js', import.meta.url), 'utf8')).replace(/^import .*;\r?$/gm, '');
-function fixture({ label = 'main', snapshot } = {}) {
+function fixture({ label = 'main', snapshot, authState } = {}) {
   const elements = new Map();
   const classes = new Set();
   const node = () => ({ dataset: {}, setAttribute() {}, addEventListener() {}, append() {}, querySelectorAll: () => [], getBoundingClientRect: () => ({ toJSON: () => ({}) }), remove() { elements.delete(this.id); } });
@@ -17,12 +17,13 @@ function fixture({ label = 'main', snapshot } = {}) {
   const calls = [];
   const window = new EventTarget();
   window.__monaSessionLoading = snapshot;
+  window.__monaAuthState = authState;
   window.location = { href: 'https://mona-hub.pages.dev/app/', replace: () => calls.push('redirect') };
   const update = loading => { window.__monaSessionLoading = loading; window.dispatchEvent(new Event('mona:session-loading')); };
   window.__TAURI__ = { window: { getCurrentWindow: () => ({ label }) }, core: { invoke: async (command, args) => {
     calls.push({ command, args });
     if (command === 'sync_acdc_identity') return pending;
-    if (command === 'session_ui_ready') update(false);
+    if (command === 'session_ui_ready' && window.__monaAuthState !== 'logout-pending') update(false);
   } } };
   const context = vm.createContext({ window, document, console: { info() {}, error() {} }, Event, CustomEvent, MonaSession, AccessAuthProvider: class {}, AuthController: class {}, authConfig: {}, getComputedStyle: () => ({ pointerEvents: 'auto' }) });
   vm.runInContext(loadingSource, context);
@@ -65,6 +66,27 @@ test('snapshot before module load restores idle instead of leaving a stuck spinn
   const f = fixture({ snapshot: false });
   assert.equal(f.main.inert, false);
   assert.equal(f.elements.has('sessionLoading'), false);
+});
+test('Rust logout-pending snapshot survives AppBar reload and rerender', async () => {
+  const f = fixture({ snapshot: true, authState: 'logout-pending' });
+  vm.runInContext(appSource, f.context);
+  f.finish(null);
+  await settle();
+  assert.equal(f.main.inert, true);
+  assert.equal(f.classes.has('session-loading'), true);
+  assert.match(f.elements.get('sessionLoading').innerHTML, /로그아웃 진행 중/);
+  assert.equal(f.calls.includes('redirect'), false);
+
+  f.update(true);
+  assert.match(f.elements.get('sessionLoading').innerHTML, /로그아웃 진행 중/);
+});
+test('late native logout-pending snapshot replaces the initial loading render', () => {
+  const f = fixture();
+  assert.match(f.elements.get('sessionLoading').innerHTML, /준비중/);
+  f.context.window.__monaAuthState = 'logout-pending';
+  f.context.window.__monaSessionLoading = true;
+  f.context.window.dispatchEvent(new Event('mona:session-loading'));
+  assert.match(f.elements.get('sessionLoading').innerHTML, /로그아웃 진행 중/);
 });
 
 

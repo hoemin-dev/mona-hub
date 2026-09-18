@@ -182,15 +182,35 @@ fn set_auth_state(app: &AppHandle, state: u8) {
 }
 
 fn session_is_loading(state: u8) -> bool {
-    matches!(state, AUTH_RESOLVING_IDENTITY | AUTH_WAITING_FOR_MAIN)
+    matches!(
+        state,
+        AUTH_RESOLVING_IDENTITY
+            | AUTH_WAITING_FOR_MAIN
+            | AUTH_LOGGING_OUT_CLOUDFLARE
+            | AUTH_LOGGING_OUT_ENTRA
+    )
+}
+
+fn auth_ui_state(state: u8) -> &'static str {
+    match state {
+        AUTH_LOGGING_OUT_CLOUDFLARE | AUTH_LOGGING_OUT_ENTRA => "logout-pending",
+        AUTH_RESOLVING_IDENTITY | AUTH_WAITING_FOR_MAIN => "session-loading",
+        AUTHENTICATED => "authenticated",
+        AUTH_IDLE => "logged-out",
+        AUTH_WAITING_FOR_LOGIN | AUTH_CHECKING_SESSION => "authenticating",
+        _ => "unknown",
+    }
 }
 
 fn sync_session_loading(app: &AppHandle) {
     if let Some(main) = app.get_webview_window("main") {
-        // Store a snapshot as well as dispatching: module loading may finish later.
-        let loading = session_is_loading(AUTH_FLOW_STATE.load(Ordering::Acquire));
+        // Store a Rust-owned snapshot as well as dispatching: a refreshed or
+        // recreated AppBar document must not infer auth state from JS lifetime.
+        let state = AUTH_FLOW_STATE.load(Ordering::Acquire);
+        let loading = session_is_loading(state);
+        let ui_state = serde_json::to_string(auth_ui_state(state)).unwrap();
         let _ = main.eval(&format!(
-            "window.__monaSessionLoading={loading};window.dispatchEvent(new Event('mona:session-loading'));"
+            "window.__monaAuthState={ui_state};window.__monaSessionLoading={loading};window.dispatchEvent(new Event('mona:session-loading'));"
         ));
     }
 }
@@ -211,6 +231,12 @@ fn complete_session_ui(window: &WebviewWindow, ready: bool) -> Result<(), String
         return Err("invalid session caller".into());
     }
     let state = AUTH_FLOW_STATE.load(Ordering::Acquire);
+    if matches!(state, AUTH_LOGGING_OUT_CLOUDFLARE | AUTH_LOGGING_OUT_ENTRA) {
+        // A reloaded /app/ document cannot cancel native logout by reporting
+        // that its JS identity cache is empty. Keep rendering the Rust snapshot.
+        sync_session_loading(window.app_handle());
+        return Ok(());
+    }
     if state == AUTHENTICATED && ready {
         sync_session_loading(window.app_handle());
         return Ok(());
@@ -771,6 +797,11 @@ fn is_active_login_url(url: &Url) -> bool {
     is_login_start_url(url) || is_access_app_url(url) || is_external_auth_url(url)
 }
 
+fn should_redirect_main_during_logout(url: &Url, state: u8) -> bool {
+    matches!(state, AUTH_LOGGING_OUT_CLOUDFLARE | AUTH_LOGGING_OUT_ENTRA)
+        && !matches!(classify_url(url), UrlRole::ProtectedApp | UrlRole::MonaHubPrelogin)
+}
+
 #[cfg(test)]
 mod login_url_tests {
     use super::*;
@@ -805,6 +836,30 @@ mod login_url_tests {
         }
         for state in [AUTH_LOGGING_OUT_CLOUDFLARE, AUTH_LOGGING_OUT_ENTRA] {
             assert_eq!(auth_state_after_login_window_close(state), state);
+            assert!(session_is_loading(state));
+            assert_eq!(auth_ui_state(state), "logout-pending");
+        }
+    }
+
+    #[test]
+    fn refreshed_main_cannot_leave_the_pending_shell_during_logout() {
+        for state in [AUTH_LOGGING_OUT_CLOUDFLARE, AUTH_LOGGING_OUT_ENTRA] {
+            assert!(!should_redirect_main_during_logout(
+                &url("https://mona-hub.pages.dev/app/"),
+                state
+            ));
+            assert!(!should_redirect_main_during_logout(
+                &url("https://mona-hub.pages.dev/prelogin/"),
+                state
+            ));
+            assert!(should_redirect_main_during_logout(
+                &url("https://example.cloudflareaccess.com/cdn-cgi/access/login"),
+                state
+            ));
+            assert!(should_redirect_main_during_logout(
+                &url("https://login.microsoftonline.com/example/oauth2/v2.0/authorize"),
+                state
+            ));
         }
     }
 
@@ -1089,6 +1144,19 @@ fn handle_page_load(window: &tauri::Webview, payload: &tauri::webview::PageLoadP
         log::info!("[profile-popup] page load {event}: {url}");
     }
     log_auth_navigation(label, event, url, state);
+
+    // Cloudflare may redirect a refreshed protected AppBar after its session was
+    // cleared. Keep the main WebView on a MonaHub-owned shell; Rust will render
+    // the logout-pending snapshot there. The separate login WebView exclusively
+    // owns the provider logout navigation.
+    if label == "main"
+        && payload.event() == PageLoadEvent::Started
+        && should_redirect_main_during_logout(url, state)
+    {
+        log::info!("[logout] main navigation kept on pending shell");
+        let _ = window.navigate(app_url(PRELOGIN_PATH));
+        return;
+    }
 
     if label == LOGIN_WINDOW_LABEL && is_login_start_url(url) {
         if let Ok(mut start) = login_start_url().lock() {
@@ -1456,6 +1524,7 @@ async fn begin_access_logout(window: WebviewWindow) -> Result<(), String> {
     identity_session::clear();
     close_managed_web_app_windows(window.app_handle());
     sync_tray_auth_menu(window.app_handle(), AUTH_LOGGING_OUT_CLOUDFLARE);
+    sync_session_loading(window.app_handle());
     let Some(login) = window.app_handle().get_webview_window(LOGIN_WINDOW_LABEL) else {
         // A successful startup fast path has never created this window. Building
         // a WebView inside synchronous IPC can deadlock on Windows. This command
