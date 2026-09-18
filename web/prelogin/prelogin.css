@@ -114,9 +114,6 @@ body {
 }
 
 .profile-area {
-  /* Center against the full AppBar width, including its 1px left border. */
-  width: calc(100% + 1px);
-  margin-left: -1px;
   align-items: end;
   padding-bottom: 6px;
 }

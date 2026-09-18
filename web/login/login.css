@@ -244,7 +244,7 @@ button {
   right: 0;
   bottom: -9px;
   left: 0;
-  width: 100%;
+  width: 60%;
   height: 2px;
   overflow: hidden;
   border-radius: 1px;
@@ -266,7 +266,7 @@ button {
 
 @keyframes login-progress-slide {
   to {
-    transform: translateX(676%);
+    transform: translateX(338%);
   }
 }
 
