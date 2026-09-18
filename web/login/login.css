@@ -241,14 +241,14 @@ button {
 
 .login-progress {
   position: absolute;
-  right: 0;
   bottom: -9px;
-  left: 0;
-  width: 60%;
+  left: 50%;
+  width: 70%;
   height: 2px;
   overflow: hidden;
   border-radius: 1px;
   background: rgb(49 129 91 / 22%);
+  transform: translateX(-50%);
 }
 
 .login-progress[hidden] {
