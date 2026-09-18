@@ -19,7 +19,7 @@ html.session-loading { background: #171a20; }
   border-left: 1px solid #30353d;
   background: linear-gradient(180deg, #1f232a, #171a20);
   color: #a0aaa5;
-  font: 13px/1.5 "Segoe UI", "Malgun Gothic", sans-serif;
+  font: 10px/1.5 "Segoe UI", "Malgun Gothic", sans-serif;
   text-align: center;
   user-select: none;
 }
