@@ -257,23 +257,29 @@ button {
 
 .login-progress-bar {
   position: absolute;
-  inset: 0 auto 0 -1%;
-  width: 1%;
+  inset: 0 auto 0 0;
+  width: 32%;
   border-radius: inherit;
   background: #43966c;
+  transform: translateX(-100%);
   animation: login-progress-slide 0.9s ease-in-out infinite;
 }
 
 @keyframes login-progress-slide {
+  from {
+    transform: translateX(-100%);
+  }
+
   to {
-    transform: translateX(100%);
+    transform: translateX(312.5%);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .login-progress-bar {
-    inset-inline: 0;
-    width: 100%;
+    inset: 0 auto 0 36%;
+    width: 28%;
+    transform: none;
     animation: none;
   }
 }

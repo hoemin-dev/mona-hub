@@ -53,6 +53,7 @@ body {
   height: 28px;
   object-fit: contain;
   image-rendering: auto;
+  transform: translateX(-2px);
 }
 
 .utility-list {
